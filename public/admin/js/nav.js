@@ -72,6 +72,8 @@ export function baseGroups() {
   // glance.
   const pluginItems = extensionItems(state.pluginMenus, state.postTypes);
 
+  const allThemeItems = [...cptItems, ...themeItems];
+
   return [
     {
       id: "content",
@@ -83,9 +85,11 @@ export function baseGroups() {
         { key: "comments", title: t("core.nav.comments", "Comments"), icon: "message-square", active: core("comments") },
         { key: "media", title: t("core.nav.media", "Media"), icon: "image", active: core("media") },
         { key: "tags", title: t("core.nav.tags", "Tags"), icon: "tag", active: core("tags") },
-        ...cptItems,
       ],
     },
+    ...(allThemeItems.length
+      ? [{ id: "from-theme", label: t("core.nav.fromTheme", "From theme"), items: allThemeItems }]
+      : []),
     {
       id: "appearance",
       label: t("core.nav.appearance", "Appearance"),
@@ -93,7 +97,6 @@ export function baseGroups() {
         { key: "appearance", title: t("core.nav.themes", "Themes"), icon: "palette", active: core("appearance") },
         { key: "menus", title: t("core.nav.menus", "Menus"), icon: "menu", active: core("menus") },
         { key: "widgets", title: t("core.nav.widgets", "Widgets"), icon: "package", active: core("widgets") },
-        ...themeItems,
       ],
     },
     {

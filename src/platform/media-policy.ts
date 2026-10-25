@@ -84,9 +84,9 @@ export interface MediaPolicyEnv {
  */
 export async function readMediaPolicy(env: MediaPolicyEnv, siteId: string): Promise<MediaPolicy> {
   const raw = await readPolicyRow(env, siteId);
-  const isolation: MediaIsolation =
-    raw?.isolation === "site" ? "site" : raw?.isolation === "owner" ? "owner" : MEDIA_POLICY_DEFAULTS.isolation;
   const requireSession = raw && "require_session" in raw ? truthy(raw.require_session) : MEDIA_POLICY_DEFAULTS.requireSession;
+  const isolation: MediaIsolation =
+    raw?.isolation === "site" ? "site" : raw?.isolation === "owner" ? "owner" : (requireSession ? MEDIA_POLICY_DEFAULTS.isolation : "site");
   return { isolation, requireSession };
 }
 

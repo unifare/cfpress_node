@@ -43,6 +43,13 @@ export async function startServer(options: ServerOptions = {}) {
   console.log(`[CFPress] Applying database migrations from: ${migrationsDir}`);
   await applyMigrations(d1, migrationsDir);
 
+  // Seed default site media policy (public / site isolation) so previews and front-end images resolve
+  try {
+    sqlite.prepare(
+      "INSERT OR IGNORE INTO settings (id, site_id, key, value, autoload) VALUES ('setting-default-media', 'default', 'cfpress.media', ?, 1)"
+    ).run(JSON.stringify({ provider: "r2", require_session: false, isolation: "site" }));
+  } catch {}
+
   const r2 = createLocalR2Bucket(mediaDir);
   const kv = createMemoryKV();
   const assets = createLocalAssets(publicDir);

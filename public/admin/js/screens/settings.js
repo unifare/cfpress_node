@@ -473,7 +473,11 @@ document.addEventListener("click", async (e) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         key: "cfpress.media",
-        value: JSON.stringify({ provider, require_session }),
+        value: JSON.stringify({
+          provider,
+          require_session,
+          isolation: require_session ? "owner" : "site",
+        }),
       }),
     });
     for (const secEl of fieldsAll("[data-media-secret]")) {

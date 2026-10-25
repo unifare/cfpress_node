@@ -110,29 +110,23 @@ const SCENARIOS = [
     expect: "the shell treats a missing summary as failure",
   },
   {
-    // The defect that was actually in the file: `wrangler deploy` with no `-c`,
-    // so menu 7 deployed the committed template — the one with REPLACE_WITH_*
-    // placeholders — instead of the generated config. It deploys "successfully"
-    // and binds the Worker to a database that does not exist.
-    label: "the shell deploys without pointing at the generated config",
+    label: "the shell reintroduces a wrangler deploy command",
     file: SH,
-    before: 'npx --no-install wrangler deploy -c "$CONFIG"',
-    after: "npx --no-install wrangler deploy",
-    expect: "every wrangler command in .sh is pointed at the generated config",
+    before: "  node scripts/build-node.mjs",
+    after: "  npx --no-install wrangler deploy",
+    expect: "no wrangler command remains in .sh",
   },
   {
-    // A stale generated config is used silently, which is the failure mode this
-    // whole design removes: the commands keep working, against last week's ids.
     label: "the shell stops regenerating the config before dev",
     file: SH,
-    before: '  ensure_config || return $?\n  head1 "wrangler dev',
-    after: '  head1 "wrangler dev',
+    before: '  ensure_config || return $?\n  head1 "node server.mjs',
+    after: '  head1 "node server.mjs',
     expect: "the shell regenerates the config before every action that reads it",
   },
   {
     label: "a menu number removed from the powershell menu",
     file: PS1,
-    before: "            '^9$' { $null = Invoke-Doctor }\n",
+    before: "            '^9$' { Invoke-Doctor }\n",
     after: "",
     expect: "no menu number is offered only by .sh",
   },
@@ -320,14 +314,21 @@ async function main() {
       }
     } else {
       const text = originalBytes.toString("utf8");
-      if (!text.includes(sc.before)) {
+      const crlf = text.includes("\r\n");
+      const before = crlf ? sc.before.replace(/\r?\n/g, "\r\n") : sc.before;
+      const after = crlf ? sc.after.replace(/\r?\n/g, "\r\n") : sc.after;
+      if (!text.includes(before)) {
         console.log(`SKIP ${i + 1}. ${sc.label} — anchor not found (harness is stale)`);
         problems++;
         continue;
       }
-      let next = text.replace(sc.before, sc.after);
+      let next = text.replace(before, after);
       // Some defects need two edits (unwiring a guard that has two call sites).
-      if (sc.extra) next = sc.extra(next);
+      if (sc.extra) {
+        next = crlf
+          ? sc.extra(next.replace(/\r\n/g, "\n")).replace(/\n/g, "\r\n")
+          : sc.extra(next);
+      }
       mutated = Buffer.from(next, "utf8");
     }
 

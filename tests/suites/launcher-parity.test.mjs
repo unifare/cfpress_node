@@ -578,51 +578,36 @@ function normName(s) {
   check("the powershell exits 3 when it refuses", /return 3/.test(ps));
 }
 
-// 8b. Every wrangler command must be pointed at the *generated* config, and the
-//     generator must run first.
-//
-//     This is the rule the launcher used to break: `act_deploy` ran
-//     `wrangler deploy` with no `-c` at all, so menu 7 deployed the committed
-//     template — the file that carries REPLACE_WITH_* placeholders — and the
-//     refusal message told the operator to paste their real ids into it, which
-//     is tracked by git. A leak on the next commit, and a deploy config free to
-//     drift from the one everything else used.
-//
-//     Scanned as *lines*, and matched on the **invocation** rather than on the
-//     subcommand alone. Two things would otherwise trip it: the refusal message
-//     legitimately contains `npx wrangler d1 create` (advice, not a command),
-//     and each action prints a progress line like `head1 "wrangler deploy"`.
-//     Both launchers invoke wrangler only through `npx` / `Invoke-Npx` — that is
-//     deliberate on Windows, where the bare `wrangler` shim is a `.ps1` that
-//     cannot be spawned — so anchoring on the wrapper is the precise test.
+// 8b. Every core lifecycle command must invoke the standalone Node.js runtime
+//     entrypoints (`node server.mjs`, `node tests/tools/_apply-migrations.mjs`,
+//     `node scripts/build-node.mjs`), and `ensure_config` / `Invoke-EnsureConfig`
+//     must run first.
 {
-  const shCmd = /\bnpx\b[^\n]*\bwrangler\s+(?:dev\b|deploy\b|d1\s+migrations\s+apply\b)/;
-  const psCmd = /\bInvoke-Npx\b[^\n]*\bwrangler\s+(?:dev\b|deploy\b|d1\s+migrations\s+apply\b)/;
-  const offenders = (src, re, configRef) =>
-    src
-      .split("\n")
-      .filter((l) => re.test(l))
-      .filter((l) => !l.includes(configRef))
-      .map((l) => l.trim());
+  const shNodeCmd = /\bnode\s+(?:server\.mjs\b|tests\/tools\/_apply-migrations\.mjs\b|scripts\/build-node\.mjs\b)/;
+  const psNodeCmd = /\bnode\s+(?:server\.mjs\b|tests\/tools\/_apply-migrations\.mjs\b|scripts\/build-node\.mjs\b)/;
+  const wranglerInvocation = /\b(?:npx|Invoke-Npx)\b[^\n]*\bwrangler\s+(?:dev\b|deploy\b|d1\s+migrations\s+apply\b)/;
 
-  const shBad = offenders(stripShComments(sh), shCmd, '-c "$CONFIG"');
-  const psBad = offenders(stripPsComments(ps), psCmd, '-c $ConfigFile');
-  checkEmpty("every wrangler command in .sh is pointed at the generated config", shBad);
-  checkEmpty("every wrangler command in .ps1 is pointed at the generated config", psBad);
-  // Non-vacuity: a rename of the wrapper, or a switch to `wrangler.toml`, would
-  // silently empty the scan — and an empty scan passes. The shell has four
-  // config-dependent commands (dev, deploy, and the two migration applies).
-  const shCommands = stripShComments(sh).split("\n").filter((l) => shCmd.test(l)).length;
-  const psCommands = stripPsComments(ps).split("\n").filter((l) => psCmd.test(l)).length;
+  const shBad = stripShComments(sh)
+    .split("\n")
+    .filter((l) => wranglerInvocation.test(l))
+    .map((l) => l.trim());
+  const psBad = stripPsComments(ps)
+    .split("\n")
+    .filter((l) => wranglerInvocation.test(l))
+    .map((l) => l.trim());
+  checkEmpty("no wrangler command remains in .sh", shBad);
+  checkEmpty("no wrangler command remains in .ps1", psBad);
+
+  const shCommands = stripShComments(sh).split("\n").filter((l) => shNodeCmd.test(l)).length;
+  const psCommands = stripPsComments(ps).split("\n").filter((l) => psNodeCmd.test(l)).length;
   check(
-    "the wrangler-command scan actually found commands (non-vacuity)",
+    "the node-runtime command scan actually found commands (non-vacuity)",
     shCommands >= 4 && psCommands >= 4,
     `${shCommands} in .sh, ${psCommands} in .ps1`
   );
 
-  // The generator has to run before anything that consumes its output, or a
-  // stale file is used silently — which is the whole failure this design exists
-  // to remove.
+  // The config/directory initializer has to run before anything that consumes
+  // its output.
   const shNeedsConfig = ["act_dev", "act_migrate_local", "act_migrate_remote", "act_deploy"];
   const shMissing = shNeedsConfig.filter((fn) => {
     const i = sh.indexOf(`\n${fn}() {`);

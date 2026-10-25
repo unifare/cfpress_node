@@ -47,13 +47,11 @@ cd "$ROOT" || { echo "cannot cd to $ROOT" >&2; exit 2; }
 # the next `git commit -a` publishes the ids of a live database. The two files
 # were also free to drift, and did — batch 11 put the feature-switch `vars`
 # block in the template only, so the deployed Worker had no `vars` at all.
-CONFIG="wrangler.local.jsonc"
-TEMPLATE="wrangler.jsonc"
-IDS="wrangler.ids.json"
+CONFIG="package.json"
+TEMPLATE="package.json"
+IDS="data/cfpress.sqlite"
 DB_NAME="cfpress"
-# Deliberately an uncommon port. 8787 is the default for `wrangler dev`, so it
-# collides with every other Wrangler project on the machine (and with the two
-# wrangler dev instances that cause SQLITE_BUSY). 47913 is in the private range
+# Deliberately an uncommon port. 47913 is in the private range
 # and is not the default of any tool we use. Override with CFP_PORT.
 DEV_PORT="${CFP_PORT:-47913}"
 DEV_HOST="${CFP_HOST:-127.0.0.1}"
@@ -87,46 +85,42 @@ die() { err "$*"; exit 2; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
 require_node() {
-  have node || die "node not found on PATH — install Node.js 20+ first"
+  have node || die "node not found on PATH — install Node.js 22+ first"
 }
 
 require_deps() {
   [ -d node_modules ] || die "node_modules/ missing — run: npm install (or: $0 install)"
-  [ -f "node_modules/.bin/wrangler" ] || die "wrangler missing — run: npm install (or: $0 install)"
 }
 
 require_wrangler() { require_node; require_deps; }
 
 # --- deploy config -----------------------------------------------------------
-# `CONFIG` is generated, so there are two ways for it to be wrong: the generator
-# cannot run (no ids file), or it ran and left placeholders behind (it cannot,
-# but the check is cheap and this is the file that ships).
-#
-# The placeholders are read from the config rather than assumed, so a future
-# third placeholder cannot slip past the deploy guard unnoticed.
 placeholders_found() {
   [ -f "$CONFIG" ] || return 0
   grep -o 'REPLACE_WITH_[A-Z0-9_]*' "$CONFIG" 2>/dev/null | sort -u
 }
 
 config_ok() {
-  [ -f "$CONFIG" ] && [ -f "package.json" ]
+  [ -f "$CONFIG" ] && [ -f "package.json" ] && [ -f "server.mjs" ]
 }
 
-# Regenerate `wrangler.local.jsonc` from the template + the local ids.
-#
-# Every wrangler action calls this first, so "the deploy config" has exactly one
-# definition and a stale copy cannot be used by accident. The generator is
-# idempotent: unchanged input means it does not rewrite the file, so this is
-# cheap enough to run before every action.
+# Prepare local directories and sync bundled extensions before running actions.
 ensure_config() {
   require_node
   [ -f "$TEMPLATE" ] || die "$TEMPLATE missing — are you in the project root?"
-  node scripts/make-local-config.mjs || {
-    err "could not generate $CONFIG (see the message above)"
+  mkdir -p data || {
+    err "could not create data directory"
     return 3
   }
-  [ -f "$CONFIG" ] || { err "$CONFIG was not produced"; return 3; }
+  node scripts/sync-bundled-themes.mjs >/dev/null 2>&1 || {
+    err "could not sync bundled themes"
+    return 3
+  }
+  node scripts/sync-plugins.mjs >/dev/null 2>&1 || {
+    err "could not sync bundled plugins"
+    return 3
+  }
+  [ -f "$CONFIG" ] || { err "$CONFIG was not found"; return 3; }
   return 0
 }
 
@@ -144,17 +138,14 @@ act_install() {
 act_typecheck() {
   require_deps
   head1 "tsc --noEmit"
-  # `tsc` exits non-zero on the upstream lib.dom.d.ts / @cloudflare/workers-types
-  # conflicts, which predate this repo and are not actionable here. AGENTS.md
-  # states the bar as "0 errors under src/", so that is what this checks —
-  # counting our own errors, not the toolchain's.
-  out=$(npx --no-install tsc --noEmit 2>&1)
+  out=$(node ./node_modules/typescript/bin/tsc --noEmit 2>&1)
   ours=$(printf '%s\n' "$out" | grep -E '^(src|scripts)/' | wc -l | tr -d ' ')
   total=$(printf '%s\n' "$out" | grep -cE 'error TS' | tr -d ' ')
   say ""
   if [ "$ours" -eq 0 ]; then
     ok "typecheck clean under src/ (0 errors; $total upstream errors in node_modules ignored)"
-    return 0
+    node scripts/check-admin-types.mjs
+    return $?
   fi
   err "$ours error(s) under src/ or scripts/:"
   printf '%s\n' "$out" | grep -E '^(src|scripts)/' | head -25 | sed 's/^/      /'
@@ -162,24 +153,21 @@ act_typecheck() {
 }
 
 act_types() {
-  require_wrangler
-  head1 "wrangler types (regenerate binding types)"
-  npx --no-install wrangler types
+  act_typecheck
 }
 
 act_migrate_local() {
   require_wrangler
   ensure_config || return $?
-  head1 "apply migrations to the LOCAL database"
-  npx --no-install wrangler d1 migrations apply "$DB_NAME" --local -c "$CONFIG"
+  head1 "apply migrations to the LOCAL database (data/cfpress.sqlite)"
+  node tests/tools/_apply-migrations.mjs
 }
 
 act_migrate_remote() {
   require_wrangler
   ensure_config || return $?
-  head1 "apply migrations to the REMOTE database"
-  warn "this touches the production D1 database"
-  npx --no-install wrangler d1 migrations apply "$DB_NAME" --remote -c "$CONFIG"
+  head1 "apply migrations to the database (data/cfpress.sqlite)"
+  node tests/tools/_apply-migrations.mjs
 }
 
 act_node() {
@@ -192,21 +180,21 @@ act_node() {
 act_dev() {
   require_wrangler
   ensure_config || return $?
-  head1 "wrangler dev  (http://$DEV_HOST:$DEV_PORT)"
-  dim "Ctrl-C to stop. First run: apply local migrations first (menu 2) or tables will be missing."
-  dim "Bundled themes ship via Worker assets — sync them into public/themes first."
+  head1 "node server.mjs  (http://$DEV_HOST:$DEV_PORT)"
+  dim "Ctrl-C to stop. Applying database migrations and syncing bundled extensions."
+  node tests/tools/_apply-migrations.mjs || return $?
   node scripts/sync-bundled-themes.mjs || return $?
+  node scripts/sync-plugins.mjs || return $?
   say ""
-  exec npx --no-install wrangler dev --port "$DEV_PORT" --ip "$DEV_HOST" -c "$CONFIG"
+  PORT="$DEV_PORT" HOST="$DEV_HOST" exec node server.mjs
 }
 
 act_theme_deploy() {
   require_wrangler
   theme="${1:-content/themes/default}"
   [ -d "$theme" ] || die "theme directory not found: $theme"
-  head1 "deploy theme: $theme"
-  dim "requires a running dev server at http://$DEV_HOST:$DEV_PORT (menu 1)"
-  node scripts/deploy-theme.mjs "$theme" "http://$DEV_HOST:$DEV_PORT"
+  head1 "sync theme: $theme"
+  node scripts/sync-bundled-themes.mjs
 }
 
 act_seed() {
@@ -397,13 +385,8 @@ deploy_precheck() {
     say ""
     for m in $missing; do say "    $m"; done
     say ""
-    say "  This file is generated. Put the real ids in $IDS:"
-    say ""
-    say "    npx wrangler d1 create $DB_NAME        # -> database_id"
-    say "    npx wrangler kv namespace create CACHE # -> id"
-    say ""
-    say "  $IDS is gitignored; $TEMPLATE is not, so never edit ids into it."
-    say "  Then re-run. To deploy anyway: $0 deploy --force"
+    say "  Remove placeholder values before building the production bundle."
+    say "  To build anyway: $0 deploy --force"
     return 3
   fi
   return 0
@@ -418,8 +401,9 @@ act_deploy() {
   ensure_config || return $?
   head1 "sync bundled themes (content/themes -> public/themes assets)"
   node scripts/sync-bundled-themes.mjs || return $?
-  head1 "wrangler deploy"
-  npx --no-install wrangler deploy -c "$CONFIG"
+  node scripts/sync-plugins.mjs || return $?
+  head1 "build production Node.js bundle (dist/server.mjs)"
+  node scripts/build-node.mjs
 }
 
 act_deploy_full() {
@@ -445,37 +429,23 @@ act_doctor() {
 
   if [ -d node_modules ]; then say "  deps       node_modules present"; else warn "deps       node_modules MISSING — run: $0 install"; fi
 
-  if [ -f "node_modules/wrangler/package.json" ]; then
-    wv=$(node -p "require('./node_modules/wrangler/package.json').version" 2>/dev/null || echo "?")
-    say "  wrangler   $wv (local)"
+  if [ -f "node_modules/drizzle-orm/package.json" ]; then
+    dv=$(node -p "require('./node_modules/drizzle-orm/package.json').version" 2>/dev/null || echo "?")
+    say "  drizzle    $dv (local)"
   else
-    warn "wrangler   not installed locally"
+    warn "drizzle    not installed locally"
   fi
 
-  # The config is derived, so report all three links in the chain: a missing ids
-  # file and a stale generated file look identical from the outside (both mean
-  # "the commands are not using what you think"), and only naming them apart
-  # tells you which one to fix.
-  if [ -f "$TEMPLATE" ]; then
-    say "  template   $TEMPLATE (committed, placeholders)"
-  else
-    warn "template   $TEMPLATE MISSING"
-  fi
   if [ -f "$IDS" ]; then
-    say "  ids        $IDS present"
+    say "  database   $IDS present"
   else
-    warn "ids        $IDS MISSING — generate it before dev/deploy"
+    dim "  database   $IDS (will be created on first migration/dev start)"
   fi
-  if [ -f "$CONFIG" ]; then
-    say "  config     $CONFIG present"
-    ph=$(placeholders_found)
-    if [ -n "$ph" ]; then
-      warn "config     placeholders still present: $(printf '%s' "$ph" | tr '\n' ' ')"
-    else
-      say "  config     no REPLACE_WITH_ placeholders"
-    fi
+
+  if [ -f "dist/server.mjs" ]; then
+    say "  bundle     dist/server.mjs present"
   else
-    warn "config     $CONFIG MISSING"
+    dim "  bundle     dist/server.mjs not built yet (menu 7 to build)"
   fi
 
   n=$(ls content/migrations/*.sql 2>/dev/null | wc -l | tr -d ' ')

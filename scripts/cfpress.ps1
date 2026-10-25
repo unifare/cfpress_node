@@ -90,13 +90,11 @@ Set-Location $Root
 # the next `git commit -a` publishes the ids of a live database. The two files
 # were also free to drift, and did — batch 11 put the feature-switch `vars`
 # block in the template only, so the deployed Worker had no `vars` at all.
-$ConfigFile = 'wrangler.local.jsonc'
-$TemplateFile = 'wrangler.jsonc'
-$IdsFile = 'wrangler.ids.json'
+$ConfigFile = 'package.json'
+$TemplateFile = 'package.json'
+$IdsFile = 'data\cfpress.sqlite'
 $DbName = 'cfpress'
-# Deliberately an uncommon port. 8787 is the default for `wrangler dev`, so it
-# collides with every other Wrangler project on the machine (and with the two
-# wrangler dev instances that cause SQLITE_BUSY). 47913 is in the private range
+# Deliberately an uncommon port. 47913 is in the private range
 # and is not the default of any tool we use. Override with CFP_PORT.
 $DevPort = if ($env:CFP_PORT) { $env:CFP_PORT } else { '47913' }
 $DevHost = if ($env:CFP_HOST) { $env:CFP_HOST } else { '127.0.0.1' }
@@ -133,39 +131,14 @@ function Test-Command {
 }
 
 function Assert-Node {
-    if (-not (Test-Command 'node')) { Die 'node not found on PATH — install Node.js 20+ first' }
+    if (-not (Test-Command 'node')) { Die 'node not found on PATH — install Node.js 22+ first' }
 }
 
 function Assert-Deps {
     if (-not (Test-Path 'node_modules')) { Die 'node_modules\ missing — run: npm install (or: .\scripts\cfpress.ps1 install)' }
-    if (-not (Test-Path 'node_modules\.bin\wrangler.cmd')) { Die 'wrangler missing — run: npm install (or: .\scripts\cfpress.ps1 install)' }
-}
-
-# In PowerShell, `npx.ps1` / `npm.ps1` trip execution-policy on locked-down
-# machines; `cmd` shims have no such problem. Prefer the .cmd and never rely on
-# the ambient shell resolving this for us.
-function Invoke-Npx {
-    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments)
-    if (Test-Path 'node_modules\.bin\wrangler.cmd') {
-        # `npx --no-install` still downloads when the package is absent; the
-        # local .cmd is the same binary without the network behaviour.
-        if ($Arguments.Length -gt 0 -and $Arguments[0] -eq 'wrangler') {
-            $rest = @()
-            if ($Arguments.Length -gt 1) { $rest = $Arguments[1..($Arguments.Length - 1)] }
-            & 'node_modules\.bin\wrangler.cmd' @rest
-            return
-        }
-    }
-    & npx @Arguments
 }
 
 # --- deploy config -----------------------------------------------------------
-# `$ConfigFile` is generated, so there are two ways for it to be wrong: the
-# generator cannot run (no ids file), or it ran and left placeholders behind (it
-# cannot, but the check is cheap and this is the file that ships).
-#
-# The placeholders are read from the config rather than assumed, so a future
-# third placeholder cannot slip past the deploy guard unnoticed.
 function Get-Placeholders {
     if (-not (Test-Path $ConfigFile)) { return @() }
     $matches = Select-String -Path $ConfigFile -Pattern 'REPLACE_WITH_[A-Z0-9_]*' -AllMatches -ErrorAction SilentlyContinue
@@ -177,25 +150,29 @@ function Get-Placeholders {
 }
 
 function Test-ConfigOk {
-    return (Test-Path $ConfigFile) -and (Test-Path 'package.json')
+    return (Test-Path $ConfigFile) -and (Test-Path 'package.json') -and (Test-Path 'server.mjs')
 }
 
-# Regenerate `wrangler.local.jsonc` from the template + the local ids.
-#
-# Every wrangler action calls this first, so "the deploy config" has exactly one
-# definition and a stale copy cannot be used by accident. The generator is
-# idempotent: unchanged input means it does not rewrite the file, so this is
-# cheap enough to run before every action.
+# Prepare local directories and sync bundled extensions before running actions.
 function Invoke-EnsureConfig {
     Assert-Node
     if (-not (Test-Path $TemplateFile)) { Die "$TemplateFile missing — are you in the project root?" }
-    $out = & node scripts/make-local-config.mjs 2>&1
+    if (-not (Test-Path 'data')) {
+        New-Item -ItemType Directory -Path 'data' -Force | Out-Null
+    }
+    $out = & node scripts/sync-bundled-themes.mjs 2>&1
     if ($LASTEXITCODE -ne 0) {
         $out | ForEach-Object { Write-Line "  $_" }
-        Write-Err2 "could not generate $ConfigFile (see the message above)"
+        Write-Err2 "could not sync bundled themes"
         return 3
     }
-    if (-not (Test-Path $ConfigFile)) { Write-Err2 "$ConfigFile was not produced"; return 3 }
+    $out2 = & node scripts/sync-plugins.mjs 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        $out2 | ForEach-Object { Write-Line "  $_" }
+        Write-Err2 "could not sync bundled plugins"
+        return 3
+    }
+    if (-not (Test-Path $ConfigFile)) { Write-Err2 "$ConfigFile was not found"; return 3 }
     return 0
 }
 
@@ -214,17 +191,14 @@ function Invoke-Install {
 function Invoke-Typecheck {
     Assert-Deps
     Write-Head 'tsc --noEmit'
-    # `tsc` exits non-zero on the upstream lib.dom.d.ts / @cloudflare/workers-types
-    # conflicts, which predate this repo and are not actionable here. AGENTS.md
-    # states the bar as "0 errors under src/", so that is what this checks —
-    # counting our own errors, not the toolchain's.
-    $out = @(& 'node_modules\.bin\tsc.cmd' --noEmit 2>&1 | ForEach-Object { "$_" })
+    $out = @(& node ./node_modules/typescript/bin/tsc --noEmit 2>&1 | ForEach-Object { "$_" })
     $ours = @($out | Where-Object { $_ -match '^(src|scripts)/' })
     $total = @($out | Where-Object { $_ -match 'error TS' }).Count
     Write-Line ''
     if ($ours.Count -eq 0) {
         Write-Ok "typecheck clean under src/ (0 errors; $total upstream errors in node_modules ignored)"
-        return 0
+        & node scripts/check-admin-types.mjs
+        return $LASTEXITCODE
     }
     Write-Err2 "$($ours.Count) error(s) under src/ or scripts/:"
     $ours | Select-Object -First 25 | ForEach-Object { Write-Host "      $_" -ForegroundColor DarkGray }
@@ -232,18 +206,15 @@ function Invoke-Typecheck {
 }
 
 function Invoke-Types {
-    Assert-Deps
-    Write-Head 'wrangler types (regenerate binding types)'
-    Invoke-Npx wrangler types
-    return $LASTEXITCODE
+    return (Invoke-Typecheck)
 }
 
 function Invoke-MigrateLocal {
     Assert-Deps
     $rc = Invoke-EnsureConfig
     if ($rc -ne 0) { return $rc }
-    Write-Head 'apply migrations to the LOCAL database'
-    Invoke-Npx wrangler d1 migrations apply $DbName --local -c $ConfigFile
+    Write-Head 'apply migrations to the LOCAL database (data/cfpress.sqlite)'
+    & node tests/tools/_apply-migrations.mjs
     return $LASTEXITCODE
 }
 
@@ -251,9 +222,8 @@ function Invoke-MigrateRemote {
     Assert-Deps
     $rc = Invoke-EnsureConfig
     if ($rc -ne 0) { return $rc }
-    Write-Head 'apply migrations to the REMOTE database'
-    Write-Warn2 'this touches the production D1 database'
-    Invoke-Npx wrangler d1 migrations apply $DbName --remote -c $ConfigFile
+    Write-Head 'apply migrations to the database (data/cfpress.sqlite)'
+    & node tests/tools/_apply-migrations.mjs
     return $LASTEXITCODE
 }
 
@@ -271,16 +241,27 @@ function Invoke-Dev {
     Assert-Deps
     $rc = Invoke-EnsureConfig
     if ($rc -ne 0) { return $rc }
-    Write-Head "wrangler dev  ($DevUrl)"
-    Write-Dim 'Ctrl-C to stop. First run: apply local migrations first (menu 2) or tables will be missing.'
-    Write-Dim 'Bundled themes ship via Worker assets — syncing them into public/themes first.'
+    Write-Head "node server.mjs  ($DevUrl)"
+    Write-Dim 'Ctrl-C to stop. Applying database migrations and syncing bundled extensions.'
+    $mig = & node tests/tools/_apply-migrations.mjs 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        $mig | ForEach-Object { Write-Line "  $_" }
+        return $LASTEXITCODE
+    }
     $out = & node scripts/sync-bundled-themes.mjs 2>&1
     if ($LASTEXITCODE -ne 0) {
         $out | ForEach-Object { Write-Line "  $_" }
         return $LASTEXITCODE
     }
+    $out2 = & node scripts/sync-plugins.mjs 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        $out2 | ForEach-Object { Write-Line "  $_" }
+        return $LASTEXITCODE
+    }
     Write-Line ''
-    Invoke-Npx wrangler dev --port $DevPort --ip $DevHost -c $ConfigFile
+    $env:PORT = $DevPort
+    $env:HOST = $DevHost
+    & node server.mjs
     return $LASTEXITCODE
 }
 
@@ -288,9 +269,8 @@ function Invoke-ThemeDeploy {
     param([string]$Theme = 'content/themes/default')
     Assert-Node
     if (-not (Test-Path $Theme)) { Die "theme directory not found: $Theme" }
-    Write-Head "deploy theme: $Theme"
-    Write-Dim "requires a running dev server at $DevUrl (menu 1)"
-    & node scripts/deploy-theme.mjs $Theme $DevUrl
+    Write-Head "sync theme: $Theme"
+    & node scripts/sync-bundled-themes.mjs
     return $LASTEXITCODE
 }
 
@@ -505,13 +485,8 @@ function Test-DeployPrecheck {
         Write-Line ''
         foreach ($m in $missing) { Write-Line "    $m" }
         Write-Line ''
-        Write-Line "  This file is generated. Put the real ids in ${IdsFile}:"
-        Write-Line ''
-        Write-Line "    npx wrangler d1 create $DbName        # -> database_id"
-        Write-Line '    npx wrangler kv namespace create CACHE # -> id'
-        Write-Line ''
-        Write-Line "  $IdsFile is gitignored; $TemplateFile is not, so never edit ids into it."
-        Write-Line '  Then re-run. To deploy anyway: .\scripts\cfpress.ps1 deploy --force'
+        Write-Line '  Remove placeholder values before building the production bundle.'
+        Write-Line '  To build anyway: .\scripts\cfpress.ps1 deploy --force'
         return $false
     }
     return $true
@@ -528,8 +503,10 @@ function Invoke-Deploy {
     Write-Head 'sync bundled themes (content/themes -> public/themes assets)'
     & node scripts/sync-bundled-themes.mjs
     if ($LASTEXITCODE -ne 0) { return $LASTEXITCODE }
-    Write-Head 'wrangler deploy'
-    Invoke-Npx wrangler deploy -c $ConfigFile
+    & node scripts/sync-plugins.mjs
+    if ($LASTEXITCODE -ne 0) { return $LASTEXITCODE }
+    Write-Head 'build production Node.js bundle (dist/server.mjs)'
+    & node scripts/build-node.mjs
     return $LASTEXITCODE
 }
 
@@ -557,33 +534,19 @@ function Invoke-Doctor {
     if (Test-Path 'node_modules') { Write-Line '  deps       node_modules present' }
     else { Write-Warn2 'deps       node_modules MISSING — run: cfpress.ps1 install' }
 
-    if (Test-Path 'node_modules\wrangler\package.json') {
+    if (Test-Path 'node_modules\drizzle-orm\package.json') {
         try {
-            $wv = (Get-Content 'node_modules\wrangler\package.json' -Raw | ConvertFrom-Json).version
-            Write-Line "  wrangler   $wv (local)"
-        } catch { Write-Line '  wrangler   (version unreadable)' }
-    } else { Write-Warn2 'wrangler   not installed locally' }
+            $dv = (Get-Content 'node_modules\drizzle-orm\package.json' -Raw | ConvertFrom-Json).version
+            Write-Line "  drizzle    $dv (local)"
+        } catch { Write-Line '  drizzle    (version unreadable)' }
+    } else { Write-Warn2 'drizzle    not installed locally' }
 
-    # The config is derived, so report all three links in the chain: a missing
-    # ids file and a stale generated file look identical from the outside (both
-    # mean "the commands are not using what you think"), and only naming them
-    # apart tells you which one to fix.
-    if (Test-Path $TemplateFile) { Write-Line "  template   $TemplateFile (committed, placeholders)" }
-    else { Write-Warn2 "template   $TemplateFile MISSING" }
-    if (Test-Path $IdsFile) { Write-Line "  ids        $IdsFile present" }
-    else { Write-Warn2 "ids        $IdsFile MISSING — generate it before dev/deploy" }
+    if (Test-Path $IdsFile) { Write-Line "  database   $IdsFile present" }
+    else { Write-Dim "  database   $IdsFile (will be created on first migration/dev start)" }
 
-    if (Test-Path $ConfigFile) {
-        Write-Line "  config     $ConfigFile present"
-        $ph = @(Get-Placeholders)
-        if ($ph.Count -gt 0) { Write-Warn2 "config     placeholders still present: $($ph -join ' ')" }
-        else { Write-Line '  config     no REPLACE_WITH_ placeholders' }
-    } else { Write-Warn2 "config     $ConfigFile MISSING" }
+    if (Test-Path 'dist\server.mjs') { Write-Line '  bundle     dist\server.mjs present' }
+    else { Write-Dim '  bundle     dist\server.mjs not built yet (menu 7 to build)' }
 
-    # Was `site\migrations`, a directory that has not existed since the tree was
-    # reorganised — so this line reported "0 file(s)" next to the shell
-    # launcher's 18 and nothing compared the two. A doctor that under-reports
-    # is worse than no doctor: it reads as "nothing to migrate".
     $n = @(Get-ChildItem 'content\migrations\*.sql' -ErrorAction SilentlyContinue).Count
     Write-Line "  migrations $n file(s)"
     $s = @(Get-ChildItem 'tests\suites\*.test.mjs' -ErrorAction SilentlyContinue).Count

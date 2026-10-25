@@ -7,7 +7,7 @@
 import { Env } from "../shared/types";
 import { activity, now, ok } from "../shared/repo";
 import { randomId } from "../shared/crypto";
-import { unzipSync } from "fflate";
+import { unzipSync, zipSync } from "fflate";
 import { safeZipPath, sha256 } from "../extensions/security";
 import { validateManifest } from "../extensions/contract/validation";
 import { inspectExtension } from "../extensions/contract/doctor";
@@ -39,12 +39,12 @@ export async function uploadExtension(env:Env,userId:string,request:Request,type
   const form=await request.formData();
   const file=form.get("file");
   if(!(file instanceof File))return ok({error:"file required"},400);
-  if(file.size>10*1024*1024)return ok({error:"extension package max size is 10MB"},413);
+  if(file.size>50*1024*1024)return ok({error:"extension package max size is 50MB"},413);
   let files:Record<string,Uint8Array>;
   try{files=unzipSync(new Uint8Array(await file.arrayBuffer())) as Record<string,Uint8Array>}catch{return ok({error:"invalid ZIP package"},400)}
   const entries=Object.entries(files);
-  if(entries.length===0||entries.length>100)return ok({error:"invalid package file count"},400);
-  let total=0;for(const [name,bytes] of entries){if(!safeZipPath(name))return ok({error:`unsafe path: ${name}`},400);total+=bytes.byteLength;if(total>20*1024*1024)return ok({error:"uncompressed package exceeds 20MB"},413)}
+  if(entries.length===0||entries.length>500)return ok({error:"invalid package file count"},400);
+  let total=0;for(const [name,bytes] of entries){if(!safeZipPath(name))return ok({error:`unsafe path: ${name}`},400);total+=bytes.byteLength;if(total>100*1024*1024)return ok({error:"uncompressed package exceeds 100MB"},413)}
   const manifestEntry=entries.find(([n])=>n.split("/").at(-1)===(type==="plugin"?"plugin.json":"theme.json"));
   if(!manifestEntry)return ok({error:`${type}.json not found`},400);
   let manifest: any;
@@ -82,25 +82,31 @@ export async function uploadExtension(env:Env,userId:string,request:Request,type
   }
   if(type==="theme") {
     const maxBinaryLimit = await getMaxBinarySizeLimitBytes(env);
-    for(const [entry,bytes] of entries) {
-      if(entry.endsWith("/") || entry.length>200) continue;
-      const isBin = isBinaryAsset(entry);
-      if(isBin && bytes.byteLength > maxBinaryLimit) {
-        const sizeKb = (bytes.byteLength / 1024).toFixed(1);
-        const limitKb = (maxBinaryLimit / 1024).toFixed(0);
-        return ok({
-          error: `Binary file "${entry}" (${sizeKb} KB) exceeds the configured limit of ${limitKb} KB (theme.max_binary_size_kb)`
-        }, 400);
+    if (!env.MEDIA) {
+      for(const [entry,bytes] of entries) {
+        if(entry.endsWith("/") || entry.length>200) continue;
+        const isBin = isBinaryAsset(entry);
+        if(isBin && bytes.byteLength > maxBinaryLimit) {
+          const sizeKb = (bytes.byteLength / 1024).toFixed(1);
+          const limitKb = (maxBinaryLimit / 1024).toFixed(0);
+          return ok({
+            error: `Binary file "${entry}" (${sizeKb} KB) exceeds the configured limit of ${limitKb} KB (theme.max_binary_size_kb)`
+          }, 400);
+        }
       }
     }
 
     for(const [entry,bytes] of entries) {
       if(entry.endsWith("/") || entry.length>200) continue;
-      try {
-        await saveThemeFileToD1(env, meta.name, meta.version, entry, bytes, maxBinaryLimit);
-      } catch (err: any) {
-        await deleteThemeFilesFromD1(env, meta.name).catch(()=>{});
-        return ok({error: err?.message || "Failed to save theme file to database"}, 400);
+      if (env.MEDIA) {
+        await saveThemeFileToD1(env, meta.name, meta.version, entry, bytes, maxBinaryLimit).catch(() => {});
+      } else {
+        try {
+          await saveThemeFileToD1(env, meta.name, meta.version, entry, bytes, maxBinaryLimit);
+        } catch (err: any) {
+          await deleteThemeFilesFromD1(env, meta.name).catch(()=>{});
+          return ok({error: err?.message || "Failed to save theme file to database"}, 400);
+        }
       }
     }
 
@@ -112,6 +118,14 @@ export async function uploadExtension(env:Env,userId:string,request:Request,type
         const contentType=normalized.endsWith(".html")?"text/html;charset=UTF-8":normalized.endsWith(".css")?"text/css;charset=UTF-8":normalized.endsWith(".json")?"application/json":normalized.endsWith(".js")?"text/javascript;charset=UTF-8":"application/octet-stream";
         await env.MEDIA.put(key,bytes,{httpMetadata:{contentType,cacheControl:"public,max-age=300"}});
       }
+    }
+  } else if (type === "plugin" && env.MEDIA) {
+    for(const [entry,bytes] of entries) {
+      if(entry.endsWith("/") || entry.length>200) continue;
+      const normalized=entry.replace(/^\.\//,"");
+      const key=`extensions/plugins/${meta.name}/${meta.version}/files/${normalized}`;
+      const contentType=normalized.endsWith(".json")?"application/json":normalized.endsWith(".html")?"text/html;charset=UTF-8":"application/octet-stream";
+      await env.MEDIA.put(key,bytes,{httpMetadata:{contentType,cacheControl:"private,max-age=0"}});
     }
   }
   const nowTs=now();
@@ -309,6 +323,307 @@ export async function uninstallPlugin(env: Env, userId: string, name: string) {
 
   await activity(env, userId, "uninstall", "plugin", name, { files, tables: ((defs.results as any[]) ?? []).length });
   return ok({ ok: true, name, files, tables: ((defs.results as any[]) ?? []).length });
+}
+
+/**
+ * Duplicate an installed plugin into a new custom plugin with automatically
+ * migrated namespace prefixes (langs, channels, adminPages, adminMenus).
+ */
+export async function copyPlugin(
+  env: Env,
+  srcPluginName: string,
+  destPluginName: string,
+  destTitle: string,
+  userId: string
+) {
+  let cleanName = String(destPluginName || "").trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+  if (!cleanName) cleanName = `${srcPluginName}-copy`;
+  if (cleanName.length < 2) cleanName = `${cleanName}-v2`;
+  if (cleanName.length > 32) cleanName = cleanName.slice(0, 32);
+
+  if (!/^[a-z0-9_-]{2,32}$/.test(cleanName)) {
+    throw new Error("New plugin identifier must be 2-32 lowercase characters (a-z, 0-9, _, -)");
+  }
+
+  const existing = await env.DB.prepare("SELECT id FROM plugin_installs WHERE name=? LIMIT 1").bind(cleanName).first<any>();
+  if (existing) {
+    throw new Error(`Plugin "${cleanName}" already exists`);
+  }
+
+  const srcRow = await env.DB.prepare("SELECT title, version, manifest FROM plugin_installs WHERE name=? LIMIT 1").bind(srcPluginName).first<any>();
+  if (!srcRow) {
+    throw new Error(`Source plugin "${srcPluginName}" not found`);
+  }
+
+  let m: any;
+  try {
+    m = JSON.parse(String(srcRow.manifest || "{}"));
+  } catch {
+    throw new Error(`Source plugin "${srcPluginName}" has invalid manifest JSON`);
+  }
+
+  const version = "1.0.0";
+  const oldPrefix = `plugin.${srcPluginName}.`;
+  const newPrefix = `plugin.${cleanName}.`;
+  const migrateKey = (k: unknown) =>
+    typeof k === "string" && k.startsWith(oldPrefix) ? `${newPrefix}${k.slice(oldPrefix.length)}` : k;
+
+  m.name = cleanName;
+  m.title = destTitle || cleanName;
+  m.version = version;
+
+  if (Array.isArray(m.channels)) {
+    for (const ch of m.channels) {
+      if (!ch || typeof ch !== "object") continue;
+      if (typeof ch.labelKey === "string") ch.labelKey = migrateKey(ch.labelKey);
+      if (Array.isArray(ch.configSchema)) {
+        for (const f of ch.configSchema) {
+          if (f && typeof f === "object" && typeof f.labelKey === "string") {
+            f.labelKey = migrateKey(f.labelKey);
+          }
+        }
+      }
+    }
+  }
+
+  if (Array.isArray(m.adminPages)) {
+    for (const pg of m.adminPages) {
+      if (!pg || typeof pg !== "object") continue;
+      if (typeof pg.titleKey === "string") pg.titleKey = migrateKey(pg.titleKey);
+      if (Array.isArray(pg.blocks)) {
+        for (const blk of pg.blocks) {
+          if (blk && typeof blk === "object" && typeof blk.labelKey === "string") {
+            blk.labelKey = migrateKey(blk.labelKey);
+          }
+        }
+      }
+    }
+  }
+
+  if (Array.isArray(m.adminMenus)) {
+    for (const menu of m.adminMenus) {
+      if (!menu || typeof menu !== "object") continue;
+      if (typeof menu.label_key === "string") menu.label_key = migrateKey(menu.label_key);
+      if (typeof menu.labelKey === "string") menu.labelKey = migrateKey(menu.labelKey);
+      if (typeof menu.id === "string" && menu.id.startsWith(`${srcPluginName}-`)) {
+        menu.id = `${cleanName}-${menu.id.slice(srcPluginName.length + 1)}`;
+      } else if (menu.id === srcPluginName) {
+        menu.id = cleanName;
+      }
+    }
+  }
+
+  if (m.langs && typeof m.langs === "object" && !Array.isArray(m.langs)) {
+    const newLangs: Record<string, any> = {};
+    for (const [locale, pack] of Object.entries(m.langs)) {
+      if (pack && typeof pack === "object" && !Array.isArray(pack)) {
+        const newPack: Record<string, string> = {};
+        for (const [k, v] of Object.entries(pack as Record<string, string>)) {
+          newPack[String(migrateKey(k))] = v;
+        }
+        newLangs[locale] = newPack;
+      } else {
+        newLangs[locale] = pack;
+      }
+    }
+    m.langs = newLangs;
+  }
+
+  const manifestStr = JSON.stringify(m, null, 2);
+  const manifestBytes = new TextEncoder().encode(manifestStr);
+  const fileMap: Record<string, Uint8Array> = { "plugin.json": manifestBytes };
+
+  // Also copy any extra files stored in MEDIA for the source plugin
+  if (env.MEDIA) {
+    const srcVer = srcRow.version || "1.0.0";
+    const prefix = `extensions/plugins/${srcPluginName}/${srcVer}/files/`;
+    let cursor: string | undefined;
+    do {
+      const list: any = await env.MEDIA.list({ prefix, cursor });
+      for (const obj of (list?.objects ?? [])) {
+        const rel = obj.key.slice(prefix.length);
+        if (!rel || rel === "plugin.json" || rel.endsWith("/")) continue;
+        const bodyObj = await env.MEDIA.get(obj.key);
+        if (bodyObj) {
+          fileMap[rel] = new Uint8Array(await bodyObj.arrayBuffer());
+        }
+      }
+      cursor = list.truncated ? list.cursor : undefined;
+    } while (cursor);
+  }
+
+  validateManifest(m, "plugin");
+  const inspection = inspectExtension(m, "plugin", fileMap);
+  if (!inspection.valid) {
+    const primary = inspection.diagnostics.find((d) => d.level === "error");
+    throw new Error(`Cloned plugin inspection failed: ${primary?.message || "Invalid contract"}`);
+  }
+
+  const zipBytes = zipSync(fileMap);
+  const checksum = await sha256(zipBytes.buffer.slice(zipBytes.byteOffset, zipBytes.byteOffset + zipBytes.byteLength) as ArrayBuffer);
+  const packageKey = `extensions/plugins/${cleanName}/${version}/${checksum}.zip`;
+  const nowTs = now();
+
+  if (env.MEDIA) {
+    await env.MEDIA.put(packageKey, zipBytes, {
+      httpMetadata: { contentType: "application/zip", cacheControl: "private, max-age=0" },
+      customMetadata: { type: "plugin", name: cleanName, version },
+    });
+    for (const [p, b] of Object.entries(fileMap)) {
+      const r2Key = `extensions/plugins/${cleanName}/${version}/files/${p}`;
+      await env.MEDIA.put(r2Key, b, {
+        httpMetadata: { contentType: p.endsWith(".json") ? "application/json" : "text/plain;charset=UTF-8", cacheControl: "private,max-age=0" },
+      });
+    }
+  }
+
+  await env.DB.prepare(
+    `INSERT INTO extension_versions(id,extension_type,extension_name,version,package_key,checksum,manifest,installed_at)
+     VALUES(?,?,?,?,?,?,?,?)
+     ON CONFLICT(extension_type,extension_name,version) DO UPDATE SET
+       package_key=excluded.package_key,
+       checksum=excluded.checksum,
+       manifest=excluded.manifest,
+       installed_at=excluded.installed_at`
+  ).bind(await randomId(), "plugin", cleanName, version, packageKey, checksum, manifestStr, nowTs).run();
+
+  await env.DB.prepare(
+    `INSERT INTO plugin_installs(id,name,title,version,enabled,manifest,installed_at,updated_at) VALUES(?,?,?,?,?,?,?,?)
+     ON CONFLICT(name) DO UPDATE SET title=excluded.title,version=excluded.version,manifest=excluded.manifest,updated_at=excluded.updated_at`
+  ).bind(`plugin_${cleanName}`, cleanName, m.title, version, 0, manifestStr, nowTs, nowTs).run();
+
+  const perms = Array.isArray(m.permissions) ? m.permissions : [];
+  for (const cap of perms.filter((x: string) => (CAPABILITIES as readonly string[]).includes(x))) {
+    await env.DB.prepare("INSERT OR REPLACE INTO extension_capabilities(extension_type,extension_name,capability,enabled) VALUES(?,?,?,1)")
+      .bind("plugin", cleanName, cap).run();
+  }
+  if (Array.isArray(m.settings)) {
+    for (const def of m.settings) {
+      if (!def?.key) continue;
+      await env.DB.prepare("INSERT OR REPLACE INTO plugin_setting_defs(plugin_name,key,label,type,default_value,options) VALUES(?,?,?,?,?,?)")
+        .bind(cleanName, String(def.key), String(def.label || def.key), String(def.type || "text"), String(def.default ?? ""), Array.isArray(def.options) ? JSON.stringify(def.options) : null).run();
+    }
+  }
+
+  await activity(env, userId, "copy", "plugin", cleanName, { from: srcPluginName });
+  return {
+    ok: true,
+    name: cleanName,
+    title: m.title,
+    version,
+    files: Object.keys(fileMap).length,
+    report: inspection,
+  };
+}
+
+/**
+ * Package an installed plugin into a ZIP buffer for export/download.
+ */
+export async function exportPluginZip(env: Env, pluginName: string): Promise<Uint8Array> {
+  const row = await env.DB.prepare("SELECT version, manifest FROM plugin_installs WHERE name=? LIMIT 1").bind(pluginName).first<any>();
+  if (!row) throw new Error(`Plugin "${pluginName}" not found`);
+
+  let manifestObj: any = {};
+  try {
+    manifestObj = JSON.parse(String(row.manifest || "{}"));
+  } catch {
+    manifestObj = { name: pluginName, version: row.version || "1.0.0" };
+  }
+
+  const zipInput: Record<string, Uint8Array> = {
+    "plugin.json": new TextEncoder().encode(JSON.stringify(manifestObj, null, 2)),
+  };
+
+  if (env.MEDIA) {
+    const ver = row.version || "1.0.0";
+    const prefix = `extensions/plugins/${pluginName}/${ver}/files/`;
+    let cursor: string | undefined;
+    do {
+      const list: any = await env.MEDIA.list({ prefix, cursor });
+      for (const obj of (list?.objects ?? [])) {
+        const rel = obj.key.slice(prefix.length);
+        if (!rel || rel === "plugin.json" || rel.endsWith("/")) continue;
+        const bodyObj = await env.MEDIA.get(obj.key);
+        if (bodyObj) {
+          zipInput[rel] = new Uint8Array(await bodyObj.arrayBuffer());
+        }
+      }
+      cursor = list.truncated ? list.cursor : undefined;
+    } while (cursor);
+  }
+
+  return zipSync(zipInput);
+}
+
+/**
+ * Update an installed plugin's manifest online (`plugin.json`).
+ */
+export async function updatePluginManifest(env: Env, userId: string, pluginName: string, manifestInput: unknown) {
+  const row = await env.DB.prepare("SELECT id, enabled, version FROM plugin_installs WHERE name=? LIMIT 1").bind(pluginName).first<any>();
+  if (!row) throw new Error(`Plugin "${pluginName}" not found`);
+
+  let m: any;
+  if (typeof manifestInput === "string") {
+    try {
+      m = JSON.parse(manifestInput);
+    } catch {
+      throw new Error("plugin.json must be valid JSON");
+    }
+  } else if (manifestInput && typeof manifestInput === "object") {
+    m = manifestInput;
+  } else {
+    throw new Error("plugin.json manifest object or string is required");
+  }
+
+  m.name = pluginName;
+  const meta = validateManifest(m, "plugin");
+  const manifestStr = JSON.stringify(m, null, 2);
+  const fileMap: Record<string, Uint8Array> = {
+    "plugin.json": new TextEncoder().encode(manifestStr),
+  };
+  const inspection = inspectExtension(m, "plugin", fileMap);
+  if (!inspection.valid) {
+    const primary = inspection.diagnostics.find((d) => d.level === "error");
+    throw new Error(`Plugin inspection failed: ${primary?.message || "Invalid contract"}`);
+  }
+
+  const nowTs = now();
+  await env.DB.prepare("UPDATE plugin_installs SET title=?, version=?, manifest=?, updated_at=? WHERE name=?")
+    .bind(meta.title, meta.version, manifestStr, nowTs, pluginName).run();
+
+  if (env.MEDIA) {
+    const r2Key = `extensions/plugins/${pluginName}/${meta.version}/files/plugin.json`;
+    await env.MEDIA.put(r2Key, fileMap["plugin.json"], {
+      httpMetadata: { contentType: "application/json", cacheControl: "private,max-age=0" },
+    });
+  }
+
+  await env.DB.prepare("DELETE FROM extension_capabilities WHERE extension_type='plugin' AND extension_name=?").bind(pluginName).run().catch(() => {});
+  const perms = Array.isArray(m.permissions) ? m.permissions : [];
+  for (const cap of perms.filter((x: string) => (CAPABILITIES as readonly string[]).includes(x))) {
+    await env.DB.prepare("INSERT OR REPLACE INTO extension_capabilities(extension_type,extension_name,capability,enabled) VALUES(?,?,?,1)")
+      .bind("plugin", pluginName, cap).run();
+  }
+
+  await env.DB.prepare("DELETE FROM plugin_setting_defs WHERE plugin_name=?").bind(pluginName).run().catch(() => {});
+  if (Array.isArray(m.settings)) {
+    for (const def of m.settings) {
+      if (!def?.key) continue;
+      await env.DB.prepare("INSERT OR REPLACE INTO plugin_setting_defs(plugin_name,key,label,type,default_value,options) VALUES(?,?,?,?,?,?)")
+        .bind(pluginName, String(def.key), String(def.label || def.key), String(def.type || "text"), String(def.default ?? ""), Array.isArray(def.options) ? JSON.stringify(def.options) : null).run();
+    }
+  }
+
+  if (row.enabled) {
+    await clearPluginMenus(env, pluginName);
+    await registerPluginMenus(env, pluginName, m.adminMenus);
+    await registerPluginTables(env, pluginName, m);
+    resetPluginRuntime();
+    await bootPluginRuntime(env);
+  }
+
+  await activity(env, userId, "update_manifest", "plugin", pluginName, { version: meta.version });
+  return { ok: true, name: pluginName, title: meta.title, version: meta.version, report: inspection };
 }
 
 export async function dispatchThemeTableAdminRoutes(
@@ -557,6 +872,42 @@ export async function dispatchExtensionAdminRoutes(
   if (pd && method === "DELETE") {
     if (!(await requirePermission(env, user, "extensions.manage", siteId))) return ok({ error: "Forbidden" }, 403);
     return uninstallPlugin(env, user.id, decodeURIComponent(pd[1]));
+  }
+  const pcopy = path.match(/^extensions\/plugins\/([^/]+)\/copy$/);
+  if (pcopy && method === "POST") {
+    if (!(await requirePermission(env, user, "extensions.manage", siteId))) return ok({ error: "Forbidden" }, 403);
+    const body = await jsonBody(request);
+    const src = decodeURIComponent(pcopy[1]);
+    const res = await copyPlugin(env, src, String(body.name || ""), String(body.title || ""), user.id).catch((e) => ({ error: e.message }));
+    if ("error" in res) return ok({ error: res.error }, 400);
+    return ok(res, 201);
+  }
+  const pexp = path.match(/^extensions\/plugins\/([^/]+)\/export$/);
+  if (pexp && method === "GET") {
+    if (!(await requirePermission(env, user, "extensions.manage", siteId))) return ok({ error: "Forbidden" }, 403);
+    const target = decodeURIComponent(pexp[1]);
+    try {
+      const zipBytes = await exportPluginZip(env, target);
+      return new Response(zipBytes.buffer.slice(zipBytes.byteOffset, zipBytes.byteOffset + zipBytes.byteLength) as ArrayBuffer, {
+        headers: {
+          "Content-Type": "application/zip",
+          "Content-Disposition": `attachment; filename="${encodeURIComponent(target)}.zip"`,
+          "Cache-Control": "private, max-age=0",
+        },
+      });
+    } catch (e: any) {
+      return ok({ error: e.message || "Export failed" }, 400);
+    }
+  }
+  const pmf = path.match(/^extensions\/plugins\/([^/]+)\/manifest$/);
+  if (pmf && (method === "PUT" || method === "POST")) {
+    if (!(await requirePermission(env, user, "extensions.manage", siteId))) return ok({ error: "Forbidden" }, 403);
+    const body = await jsonBody(request);
+    const target = decodeURIComponent(pmf[1]);
+    const res = await updatePluginManifest(env, user.id, target, body.manifest ?? body).catch((e) => ({ error: e.message }));
+    if ("error" in res) return ok({ error: res.error }, 400);
+    await bumpContentCache(env, siteId);
+    return ok(res);
   }
   if (path === "extensions/themes" && method === "GET") {
     if (!(await requireSiteAccess(env, user, siteId))) return ok({ error: "Forbidden" }, 403);

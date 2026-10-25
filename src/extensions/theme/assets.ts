@@ -9,7 +9,7 @@ import { randomId } from "../../shared/crypto";
 import { safeZipPath, sha256 } from "../security";
 import { validateManifest } from "../contract/validation";
 import { inspectExtension, type InspectionReport } from "../contract/doctor";
-import { base64ToBytes, deleteThemeFilesFromD1, getMaxBinarySizeLimitBytes, getThemeFileEntryFromD1, listThemeFilesFromD1, saveThemeFileToD1 } from "./d1-store";
+import { base64ToBytes, deleteThemeFilesFromD1, getMaxBinarySizeLimitBytes, getThemeFileEntryFromD1, isBinaryAsset, listThemeFilesFromD1, saveThemeFileToD1 } from "./d1-store";
 
 export interface ThemeFileEntry {
   path: string;
@@ -109,8 +109,24 @@ export async function listThemeFiles(env: Env, themeName: string): Promise<Theme
         for (const loc of manifest.locales) candidates.push(`langs/${loc}.json`);
       }
     }
-    // Check known optional assets
-    for (const opt of ["assets/style.css", "assets/main.js", "assets/app.css"]) {
+    // Check known optional assets, docs, screenshots, and language packs across all shipped themes
+    for (const opt of [
+      "langs/zh-CN.json",
+      "langs/en.json",
+      "assets/style.css",
+      "assets/main.js",
+      "assets/app.css",
+      "assets/blog.css",
+      "assets/blog.js",
+      "shots/hero.svg",
+      "shots/shot-editor.svg",
+      "shots/shot-languages.svg",
+      "shots/shot-sites.svg",
+      "shots/shot-themes.svg",
+      "screenshot.png",
+      "screenshot.jpg",
+      "assets/screenshot.png",
+    ]) {
       candidates.push(opt);
     }
 
@@ -129,6 +145,7 @@ export async function listThemeFiles(env: Env, themeName: string): Promise<Theme
       }
     }
   } else {
+    const seenCustom = new Set<string>();
     if (env.MEDIA) {
       const prefix = `extensions/themes/${themeName}/${version}/files/`;
       let cursor: string | undefined;
@@ -136,7 +153,8 @@ export async function listThemeFiles(env: Env, themeName: string): Promise<Theme
         const list = await env.MEDIA.list({ prefix, cursor });
         for (const obj of list.objects) {
           const rel = obj.key.slice(prefix.length);
-          if (!rel || rel.endsWith("/")) continue;
+          if (!rel || rel.endsWith("/") || seenCustom.has(rel)) continue;
+          seenCustom.add(rel);
           files.push({
             path: rel,
             size: obj.size,
@@ -147,16 +165,16 @@ export async function listThemeFiles(env: Env, themeName: string): Promise<Theme
         cursor = list.truncated ? list.cursor : undefined;
       } while (cursor);
     }
-    if (files.length === 0) {
-      const d1Files = await listThemeFilesFromD1(env, themeName);
-      for (const f of d1Files) {
-        files.push({
-          path: f.path,
-          size: f.size,
-          type: classifyPath(f.path),
-          readonly: false,
-        });
-      }
+    const d1Files = await listThemeFilesFromD1(env, themeName);
+    for (const f of d1Files) {
+      if (seenCustom.has(f.path)) continue;
+      seenCustom.add(f.path);
+      files.push({
+        path: f.path,
+        size: f.size,
+        type: classifyPath(f.path),
+        readonly: false,
+      });
     }
   }
 
@@ -168,6 +186,74 @@ export async function listThemeFiles(env: Env, themeName: string): Promise<Theme
     bundled: isBundled,
     files,
   };
+}
+
+/**
+ * Read raw bytes for any theme file (text or binary) across ASSETS, MEDIA (R2/local disk), or D1.
+ */
+export async function readThemeFileBytes(
+  env: Env,
+  themeName: string,
+  relPath: string
+): Promise<{ bytes: Uint8Array; isBinary: boolean; contentType: string; readonly: boolean }> {
+  const norm = normalizeRelPath(relPath);
+  const isBundled = (BUNDLED_THEMES as readonly string[]).includes(themeName);
+  const isBin = isBinaryAsset(norm);
+
+  if (isBundled) {
+    if (isBin && env.ASSETS) {
+      try {
+        const res = await env.ASSETS.fetch(`https://bundled.local/themes/${themeName}/${norm}`);
+        if (res.ok) {
+          return {
+            bytes: new Uint8Array(await res.arrayBuffer()),
+            isBinary: true,
+            contentType: resolveContentType(norm),
+            readonly: true,
+          };
+        }
+      } catch {}
+    }
+    const text = await bundledThemeFile(env, themeName, norm);
+    if (text === null) throw new Error(`File "${norm}" not found in theme "${themeName}"`);
+    return {
+      bytes: new TextEncoder().encode(text),
+      isBinary: isBin,
+      contentType: resolveContentType(norm),
+      readonly: true,
+    };
+  }
+
+  const row = await env.DB.prepare(
+    "SELECT version FROM theme_installs WHERE name=? LIMIT 1"
+  ).bind(themeName).first<any>();
+  if (!row) throw new Error(`Theme "${themeName}" not found`);
+
+  if (env.MEDIA) {
+    const key = `extensions/themes/${themeName}/${row.version}/files/${norm}`;
+    const obj = await env.MEDIA.get(key);
+    if (obj) {
+      const buf = await obj.arrayBuffer();
+      return {
+        bytes: new Uint8Array(buf),
+        isBinary: isBin,
+        contentType: resolveContentType(norm),
+        readonly: false,
+      };
+    }
+  }
+
+  const d1Entry = await getThemeFileEntryFromD1(env, themeName, norm);
+  if (d1Entry) {
+    return {
+      bytes: d1Entry.isBinary ? base64ToBytes(d1Entry.content) : new TextEncoder().encode(d1Entry.content),
+      isBinary: d1Entry.isBinary,
+      contentType: d1Entry.contentType,
+      readonly: false,
+    };
+  }
+
+  throw new Error(`File "${norm}" not found in theme "${themeName}"`);
 }
 
 /**
@@ -202,6 +288,15 @@ export async function readThemeFile(
     const key = `extensions/themes/${themeName}/${row.version}/files/${norm}`;
     const obj = await env.MEDIA.get(key);
     if (obj) {
+      if (isBinaryAsset(norm)) {
+        return {
+          theme: themeName,
+          path: norm,
+          content: `[Binary asset: ${norm} (${obj.size} bytes)]`,
+          contentType: resolveContentType(norm),
+          readonly: true,
+        };
+      }
       const text = await obj.text();
       return {
         theme: themeName,
@@ -214,7 +309,16 @@ export async function readThemeFile(
   }
 
   const d1Entry = await getThemeFileEntryFromD1(env, themeName, norm);
-  if (d1Entry && !d1Entry.isBinary) {
+  if (d1Entry) {
+    if (d1Entry.isBinary) {
+      return {
+        theme: themeName,
+        path: norm,
+        content: `[Binary asset: ${norm} (${d1Entry.size} bytes)]`,
+        contentType: d1Entry.contentType,
+        readonly: true,
+      };
+    }
     return {
       theme: themeName,
       path: norm,
@@ -252,14 +356,15 @@ export async function writeThemeFile(
   const version = row.version || "1.0.0";
   const contentType = resolveContentType(norm);
   const bytes = new TextEncoder().encode(content);
+  const maxBinaryLimit = await getMaxBinarySizeLimitBytes(env);
 
   if (env.MEDIA) {
     const key = `extensions/themes/${themeName}/${version}/files/${norm}`;
     await env.MEDIA.put(key, bytes, {
       httpMetadata: { contentType, cacheControl: "public,max-age=60" },
     });
+    await saveThemeFileToD1(env, themeName, version, norm, bytes, maxBinaryLimit).catch(() => {});
   } else {
-    const maxBinaryLimit = await getMaxBinarySizeLimitBytes(env);
     await saveThemeFileToD1(env, themeName, version, norm, bytes, maxBinaryLimit);
   }
 
@@ -353,68 +458,79 @@ export async function copyTheme(
 
   const oldPrefix = `theme.${srcThemeName}.`;
   const newPrefix = `theme.${cleanName}.`;
+  const oldAssetUrlPrefix = `/themes/${srcThemeName}/`;
+  const newAssetUrlPrefix = `/themes/${cleanName}/`;
 
   for (const f of list.files) {
-    const fileRes = await readThemeFile(env, srcThemeName, f.path);
-    let body = fileRes.content;
-    if (f.path === "theme.json") {
-      try {
-        const m = JSON.parse(body);
-        m.name = cleanName;
-        m.title = destTitle || cleanName;
-        m.version = version;
-        if (Array.isArray(m.adminMenus)) {
-          for (const menu of m.adminMenus) {
-            if (menu && typeof menu.label_key === "string" && menu.label_key.startsWith(oldPrefix)) {
-              menu.label_key = `${newPrefix}${menu.label_key.slice(oldPrefix.length)}`;
-            }
-          }
-        }
-        if (m.langs && typeof m.langs === "object" && !Array.isArray(m.langs)) {
-          const newLangs: Record<string, any> = {};
-          for (const [locale, pack] of Object.entries(m.langs)) {
-            if (pack && typeof pack === "object" && !Array.isArray(pack)) {
-              const newPack: Record<string, string> = {};
-              for (const [k, v] of Object.entries(pack as Record<string, string>)) {
-                const newK = k.startsWith(oldPrefix) ? `${newPrefix}${k.slice(oldPrefix.length)}` : k;
-                newPack[newK] = v;
+    const rawRes = await readThemeFileBytes(env, srcThemeName, f.path);
+    if (rawRes.isBinary) {
+      fileMap[f.path] = rawRes.bytes;
+    } else {
+      let body = new TextDecoder().decode(rawRes.bytes);
+      if (f.path === "theme.json") {
+        try {
+          const m = JSON.parse(body);
+          m.name = cleanName;
+          m.title = destTitle || cleanName;
+          m.version = version;
+          if (Array.isArray(m.adminMenus)) {
+            for (const menu of m.adminMenus) {
+              if (menu && typeof menu.label_key === "string" && menu.label_key.startsWith(oldPrefix)) {
+                menu.label_key = `${newPrefix}${menu.label_key.slice(oldPrefix.length)}`;
               }
-              newLangs[locale] = newPack;
-            } else {
-              newLangs[locale] = pack;
             }
           }
-          m.langs = newLangs;
-        }
-        body = JSON.stringify(m, null, 2);
-      } catch {}
-    } else if (f.path.startsWith("langs/") && f.path.endsWith(".json")) {
-      try {
-        const pack = JSON.parse(body);
-        if (pack && typeof pack === "object" && !Array.isArray(pack)) {
-          const newPack: Record<string, string> = {};
-          for (const [k, v] of Object.entries(pack)) {
-            const newK = k.startsWith(oldPrefix) ? `${newPrefix}${k.slice(oldPrefix.length)}` : k;
-            newPack[newK] = v as string;
+          if (m.langs && typeof m.langs === "object" && !Array.isArray(m.langs)) {
+            const newLangs: Record<string, any> = {};
+            for (const [locale, pack] of Object.entries(m.langs)) {
+              if (pack && typeof pack === "object" && !Array.isArray(pack)) {
+                const newPack: Record<string, string> = {};
+                for (const [k, v] of Object.entries(pack as Record<string, string>)) {
+                  const newK = k.startsWith(oldPrefix) ? `${newPrefix}${k.slice(oldPrefix.length)}` : k;
+                  newPack[newK] = v;
+                }
+                newLangs[locale] = newPack;
+              } else {
+                newLangs[locale] = pack;
+              }
+            }
+            m.langs = newLangs;
           }
-          body = JSON.stringify(newPack, null, 2);
+          body = JSON.stringify(m, null, 2);
+        } catch {}
+      } else if (f.path.startsWith("langs/") && f.path.endsWith(".json")) {
+        try {
+          const pack = JSON.parse(body);
+          if (pack && typeof pack === "object" && !Array.isArray(pack)) {
+            const newPack: Record<string, string> = {};
+            for (const [k, v] of Object.entries(pack)) {
+              const newK = k.startsWith(oldPrefix) ? `${newPrefix}${k.slice(oldPrefix.length)}` : k;
+              newPack[newK] = v as string;
+            }
+            body = JSON.stringify(newPack, null, 2);
+          }
+        } catch {}
+      } else if (f.path.endsWith(".html") || f.path.endsWith(".css") || f.path.endsWith(".js")) {
+        if (body.includes(oldAssetUrlPrefix)) {
+          body = body.replaceAll(oldAssetUrlPrefix, newAssetUrlPrefix);
         }
-      } catch {}
+      }
+      fileMap[f.path] = new TextEncoder().encode(body);
     }
-    const bytes = new TextEncoder().encode(body);
-    fileMap[f.path] = bytes;
 
     if (env.MEDIA) {
       const r2Key = `extensions/themes/${cleanName}/${version}/files/${f.path}`;
-      await env.MEDIA.put(r2Key, bytes, {
+      await env.MEDIA.put(r2Key, fileMap[f.path], {
         httpMetadata: { contentType: resolveContentType(f.path), cacheControl: "public,max-age=300" },
       });
     }
   }
 
-  if (!env.MEDIA) {
-    const maxBinaryLimit = await getMaxBinarySizeLimitBytes(env);
-    for (const [p, b] of Object.entries(fileMap)) {
+  const maxBinaryLimit = await getMaxBinarySizeLimitBytes(env);
+  for (const [p, b] of Object.entries(fileMap)) {
+    if (env.MEDIA) {
+      await saveThemeFileToD1(env, cleanName, version, p, b, maxBinaryLimit).catch(() => {});
+    } else {
       await saveThemeFileToD1(env, cleanName, version, p, b, maxBinaryLimit);
     }
   }
@@ -484,13 +600,8 @@ export async function exportThemeZip(env: Env, themeName: string): Promise<Uint8
 
   const zipInput: Record<string, Uint8Array> = {};
   for (const f of list.files) {
-    const d1Entry = await getThemeFileEntryFromD1(env, themeName, f.path);
-    if (d1Entry) {
-      zipInput[f.path] = d1Entry.isBinary ? base64ToBytes(d1Entry.content) : new TextEncoder().encode(d1Entry.content);
-    } else {
-      const fileRes = await readThemeFile(env, themeName, f.path);
-      zipInput[f.path] = new TextEncoder().encode(fileRes.content);
-    }
+    const rawRes = await readThemeFileBytes(env, themeName, f.path);
+    zipInput[f.path] = rawRes.bytes;
   }
 
   return zipSync(zipInput);

@@ -161,9 +161,13 @@ async function main() {
   function cleanup() {
     sqlite.prepare("DELETE FROM admin_sessions WHERE id='sess_admin_test_token'").run();
     sqlite.prepare("DELETE FROM site_users WHERE id='user_super'").run();
-    sqlite.prepare("DELETE FROM theme_installs WHERE name IN ('mobai-custom', 'd1-test-theme', 'grand-resort-test', 'grand-resort-copy')").run();
-    sqlite.prepare("DELETE FROM extension_versions WHERE extension_name IN ('mobai-custom', 'd1-test-theme', 'grand-resort-test', 'grand-resort-copy')").run();
-    sqlite.prepare("DELETE FROM theme_files WHERE theme_name IN ('mobai-custom', 'd1-test-theme', 'grand-resort-test', 'grand-resort-copy')").run();
+    sqlite.prepare("DELETE FROM theme_installs WHERE name IN ('mobai-custom', 'd1-test-theme', 'grand-resort-test', 'grand-resort-copy', 'ctblog-custom')").run();
+    sqlite.prepare("DELETE FROM extension_versions WHERE extension_name IN ('mobai-custom', 'd1-test-theme', 'grand-resort-test', 'grand-resort-copy', 'ctblog-custom', 'test-notify', 'test-notify-copy')").run();
+    sqlite.prepare("DELETE FROM theme_files WHERE theme_name IN ('mobai-custom', 'd1-test-theme', 'grand-resort-test', 'grand-resort-copy', 'ctblog-custom')").run();
+    sqlite.prepare("DELETE FROM plugin_installs WHERE name IN ('test-notify', 'test-notify-copy')").run();
+    sqlite.prepare("DELETE FROM plugin_settings WHERE plugin_id IN ('plugin_test-notify', 'plugin_test-notify-copy')").run();
+    sqlite.prepare("DELETE FROM plugin_setting_defs WHERE plugin_name IN ('test-notify', 'test-notify-copy')").run();
+    sqlite.prepare("DELETE FROM extension_capabilities WHERE extension_name IN ('test-notify', 'test-notify-copy')").run();
     sqlite.prepare("DELETE FROM platform_settings WHERE key='theme.max_binary_size_kb'").run();
   }
   cleanup();
@@ -488,6 +492,116 @@ async function main() {
     check("uninstall D1 theme is 200", uninstD1.status, 200);
     const remainingD1Files = sqlite.prepare("SELECT COUNT(*) as cnt FROM theme_files WHERE theme_name='d1-test-theme'").get();
     check("all theme_files in D1 are deleted", remainingD1Files.cnt, 0);
+  }
+
+  section("9. Plugin Duplication, Export ZIP, and Manifest Online Update");
+  {
+    // Restore MEDIA
+    env.MEDIA = r2;
+
+    // Seed a plugin to copy
+    const pluginManifest = {
+      name: "test-notify",
+      title: "Test Notify Plugin",
+      version: "1.0.0",
+      permissions: ["content.read", "settings.read"],
+      hooks: ["html", "afterSavePost"],
+      channels: [
+        {
+          code: "webhook",
+          labelKey: "plugin.test-notify.channel.webhook",
+          configSchema: [
+            { key: "url", type: "url", labelKey: "plugin.test-notify.channel.url" },
+          ],
+        },
+      ],
+      adminMenus: [
+        {
+          id: "test-notify-settings",
+          label: "Test Notify",
+          label_key: "plugin.test-notify.menu.title",
+          screen: "plugin-settings",
+        },
+      ],
+      langs: {
+        en: {
+          "plugin.test-notify.menu.title": "Notify Settings",
+          "plugin.test-notify.channel.webhook": "Webhook Hook",
+          "plugin.test-notify.channel.url": "Target URL",
+        },
+        "zh-CN": {
+          "plugin.test-notify.menu.title": "通知设置",
+          "plugin.test-notify.channel.webhook": "网页钩子",
+          "plugin.test-notify.channel.url": "目标网址",
+        },
+      },
+    };
+    const pZip = zipSync({ "plugin.json": new TextEncoder().encode(JSON.stringify(pluginManifest, null, 2)) });
+    const fd = new FormData();
+    fd.append("file", new File([pZip], "test-notify.zip", { type: "application/zip" }));
+    const upRes = await callApi("extensions/plugins/upload", "POST", fd);
+    check("upload test-notify status is 201", upRes.status, 201);
+
+    // Duplicate plugin
+    const copyRes = await callApi("extensions/plugins/test-notify/copy", "POST", {
+      name: "test-notify-copy",
+      title: "Cloned Notify Plugin",
+    });
+    check("copy plugin status is 201", copyRes.status, 201);
+    const copyData = await copyRes.json();
+    check("cloned plugin name is test-notify-copy", copyData.name, "test-notify-copy");
+    check("cloned plugin title is Cloned Notify Plugin", copyData.title, "Cloned Notify Plugin");
+
+    // Verify cloned manifest migrated prefixes
+    const clonedRow = sqlite.prepare("SELECT manifest FROM plugin_installs WHERE name='test-notify-copy'").get();
+    checkTruthy("cloned plugin has DB row", !!clonedRow);
+    const clonedMf = JSON.parse(clonedRow.manifest);
+    check("channel labelKey migrated", clonedMf.channels?.[0]?.labelKey, "plugin.test-notify-copy.channel.webhook");
+    check("channel config labelKey migrated", clonedMf.channels?.[0]?.configSchema?.[0]?.labelKey, "plugin.test-notify-copy.channel.url");
+    check("adminMenu id migrated", clonedMf.adminMenus?.[0]?.id, "test-notify-copy-settings");
+    check("adminMenu label_key migrated", clonedMf.adminMenus?.[0]?.label_key, "plugin.test-notify-copy.menu.title");
+    checkTruthy("inline langs zh-CN migrated", clonedMf.langs?.["zh-CN"]?.["plugin.test-notify-copy.menu.title"] === "通知设置");
+
+    // Export plugin ZIP
+    const expRes = await callApi("extensions/plugins/test-notify-copy/export");
+    check("export plugin zip status is 200", expRes.status, 200);
+    check("content-type is zip", expRes.headers.get("content-type"), "application/zip");
+    const expBuf = await expRes.arrayBuffer();
+    const expUnzipped = unzipSync(new Uint8Array(expBuf));
+    checkTruthy("exported zip has plugin.json", !!expUnzipped["plugin.json"]);
+
+    // Update manifest online
+    clonedMf.title = "Updated Notify Title";
+    const updateRes = await callApi("extensions/plugins/test-notify-copy/manifest", "PUT", {
+      manifest: clonedMf,
+    });
+    check("update manifest status is 200", updateRes.status, 200);
+    const updatedRow = sqlite.prepare("SELECT title FROM plugin_installs WHERE name='test-notify-copy'").get();
+    check("manifest title update persisted", updatedRow.title, "Updated Notify Title");
+
+    // Clean up plugins
+    await callApi("extensions/plugins/test-notify", "DELETE");
+    await callApi("extensions/plugins/test-notify-copy", "DELETE");
+  }
+
+  section("10. Bundled Theme (ctblog) Complete Copy & Asset Serving");
+  {
+    const copyCtblog = await callApi("extensions/themes/ctblog/copy", "POST", {
+      name: "ctblog-custom",
+      title: "Custom Shouji",
+    });
+    check("copy ctblog status is 201", copyCtblog.status, 201);
+    const ctblogData = await copyCtblog.json();
+    check("cloned theme name is ctblog-custom", ctblogData.name, "ctblog-custom");
+    checkTruthy("copied files count > 10", ctblogData.files > 10);
+
+    // Verify blog.css asset serving through /themes/ctblog-custom/assets/blog.css
+    const assetReq = new Request("http://127.0.0.1/themes/ctblog-custom/assets/blog.css");
+    const assetRes = await worker.default.fetch(assetReq, env, { waitUntil() {}, passThroughOnException() {} });
+    check("serving cloned theme asset answers 200", assetRes.status, 200);
+
+    // Clean up
+    await callApi("extensions/themes/ctblog-custom", "DELETE");
   }
 
   cleanup();

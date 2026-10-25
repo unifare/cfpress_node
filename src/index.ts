@@ -330,6 +330,21 @@ async function handleRequest(request:Request,env:Env,ctx:ExecutionContext){
    const themeName = parts[0];
    const relPath = parts.slice(1).join("/");
    if (themeName && relPath) {
+     if (env.MEDIA) {
+       const tRow = await env.DB.prepare("SELECT version FROM theme_installs WHERE name=? LIMIT 1").bind(themeName).first<any>().catch(() => null);
+       const ver = tRow?.version || "1.0.0";
+       const r2Obj = await env.MEDIA.get(`extensions/themes/${themeName}/${ver}/files/${relPath}`);
+       if (r2Obj) {
+         const h = new Headers();
+         if (typeof r2Obj.writeHttpMetadata === "function") r2Obj.writeHttpMetadata(h);
+         if (!h.has("Content-Type")) {
+           const ct = relPath.endsWith(".css") ? "text/css;charset=UTF-8" : relPath.endsWith(".js") ? "text/javascript;charset=UTF-8" : relPath.endsWith(".svg") ? "image/svg+xml" : relPath.endsWith(".png") ? "image/png" : relPath.endsWith(".jpg") || relPath.endsWith(".jpeg") ? "image/jpeg" : relPath.endsWith(".webp") ? "image/webp" : "application/octet-stream";
+           h.set("Content-Type", ct);
+         }
+         h.set("Cache-Control", "public, max-age=3600");
+         return new Response(r2Obj.body as any, { status: 200, headers: h });
+       }
+     }
      const entry = await getThemeFileEntryFromD1(env, themeName, relPath);
      if (entry) {
        const body = entry.isBinary ? base64ToBytes(entry.content) : entry.content;

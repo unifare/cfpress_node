@@ -31,9 +31,11 @@ export default async function plugins(c) {
         </div>
       </div></td>
       <td>${x.enabled ? `<span class="badge success">${esc(t("core.plugins.enabled", "enabled"))}</span>` : `<span class="badge secondary">${esc(t("core.plugins.disabled", "disabled"))}</span>`}</td>
-      <td class="actions" style="display:flex;align-items:center;gap:.35rem;justify-content:flex-end">
+      <td class="actions" style="display:flex;align-items:center;gap:.35rem;justify-content:flex-end;flex-wrap:wrap">
         <button class="btn outline sm" data-plugin-doctor="${attr(x.name)}">${icon("activity")}${esc(t("core.ext.doctor", "体检"))}</button>
         <button class="btn outline sm" data-plugin-manifest="${attr(x.name)}">${icon("layers")}${esc(t("core.plugins.manifest", "清单"))}</button>
+        <button class="btn outline sm" data-plugin-copy="${attr(x.name)}">${icon("copy")}${esc(t("core.plugins.copy", "复制"))}</button>
+        <button class="btn outline sm" data-plugin-export="${attr(x.name)}">${icon("download")}${esc(t("core.plugins.export", "导出"))}</button>
         <button class="btn outline sm" data-plugin-toggle="${attr(x.name)}|${x.enabled ? 1 : 0}">${icon(x.enabled ? "x" : "check")}${esc(t(x.enabled ? "core.plugins.disable" : "core.plugins.enable", x.enabled ? "Disable" : "Enable"))}</button>
         <button class="btn outline sm" data-plugin-settings="${attr(x.name)}">${icon("settings")}${esc(t("core.nav.settings", "Settings"))}</button>
         <button class="btn outline danger sm" data-plugin-del="${attr(x.name)}">${icon("trash")}${esc(t("core.plugins.delete", "删除"))}</button>
@@ -111,6 +113,52 @@ document.addEventListener("click", async (e) => {
     const name = mf.dataset.pluginManifest;
     const item = lastPluginItems.find((x) => x.name === name) || { name, title: name };
     showCapabilitiesModal({ type: "plugin", item, siteId: state.site });
+    return;
+  }
+
+  const cpy = closestEl(e, "[data-plugin-copy]");
+  if (cpy) {
+    const srcName = cpy.dataset.pluginCopy;
+    const defaultNewName = `${srcName}-copy`;
+    const defaultTitle = `${srcName.toUpperCase()} Custom`;
+
+    const v = await openDialog({
+      title: t("core.plugins.duplicateTitle", "复制插件"),
+      description: t("core.plugins.promptCloneName", "输入新插件的英文标识（小写字母、数字、短横线）："),
+      confirmLabel: t("core.plugins.copy", "复制"),
+      fields: [
+        { name: "name", label: t("core.plugins.promptCloneName", "新插件英文标识："), value: defaultNewName, required: true },
+        { name: "title", label: t("core.plugins.promptCloneTitle", "新插件显示名称："), value: defaultTitle, required: true },
+      ],
+    });
+    if (!v) return;
+
+    let clean = (v.name || "").trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+    if (!clean || clean.length < 2) clean = `${srcName}-copy`;
+    if (clean.length > 32) clean = clean.slice(0, 32);
+
+    try {
+      await api(`extensions/plugins/${encodeURIComponent(srcName)}/copy`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: clean, title: v.title || clean }),
+      });
+      toast(t("core.plugins.clonedSuccess", "插件已成功复制", { name: clean }));
+      render();
+    } catch (err) {
+      await alertDialog({
+        title: t("core.plugins.cloneFailed", "复制插件失败"),
+        description: err.message,
+      });
+    }
+    return;
+  }
+
+  const exp = closestEl(e, "[data-plugin-export]");
+  if (exp) {
+    const name = exp.dataset.pluginExport;
+    const adminBase = (window.CFP_ADMIN_BASE || "/admin").replace(/\/+$/, "");
+    window.open(`${adminBase}/api/v1/extensions/plugins/${encodeURIComponent(name)}/export`);
     return;
   }
 

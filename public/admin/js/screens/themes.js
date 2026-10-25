@@ -6,7 +6,7 @@ import { api, loadContext, scoped, state } from "../state.js";
 import { pageHead, render } from "../shell.js";
 import { icon } from "../../icons.js";
 import { t } from "../i18n.js";
-import { evtField, elAt, closestEl, alertDialog, attr, confirmDialog, esc, toast } from "../../ui.js";
+import { evtField, elAt, closestEl, alertDialog, attr, confirmDialog, esc, openDialog, toast } from "../../ui.js";
 import { installExtension } from "./extension-install.js";
 import { showCapabilitiesModal } from "./capabilities-modal.js";
 
@@ -159,18 +159,28 @@ document.addEventListener("click", async (e) => {
   if (cpy) {
     const srcName = cpy.dataset.themeCopy;
     const defaultNewName = `${srcName}-copy`;
-    const newName = window.prompt(t("core.themes.promptCloneName", "Enter identifier for the new theme (lowercase, numbers, hyphen):"), defaultNewName);
-    if (!newName) return;
-    let clean = (newName || "").trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+    const defaultTitle = `${srcName.toUpperCase()} Custom`;
+
+    const v = await openDialog({
+      title: t("core.themes.duplicateTheme", "Duplicate theme"),
+      description: t("core.themes.duplicateToEdit", "Duplicate this theme to create an editable custom copy."),
+      confirmLabel: t("core.themes.copy", "Duplicate"),
+      fields: [
+        { name: "name", label: t("core.themes.promptCloneName", "New theme identifier:"), value: defaultNewName, required: true },
+        { name: "title", label: t("core.themes.promptCloneTitle", "New theme title:"), value: defaultTitle, required: true },
+      ],
+    });
+    if (!v) return;
+
+    let clean = (v.name || "").trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
     if (!clean || clean.length < 2) clean = `${srcName}-copy`;
     if (clean.length > 32) clean = clean.slice(0, 32);
-    const newTitle = window.prompt(t("core.themes.promptCloneTitle", "Enter title for the new theme:"), `${srcName.toUpperCase()} Custom`);
 
     try {
       await api(scoped(`extensions/themes/${encodeURIComponent(srcName)}/copy`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: clean, title: newTitle || clean }),
+        body: JSON.stringify({ name: clean, title: v.title || clean }),
       });
       toast(t("core.themes.clonedSuccess", "Theme duplicated successfully"));
       render();
@@ -186,7 +196,8 @@ document.addEventListener("click", async (e) => {
   const exp = closestEl(e, "[data-theme-export]");
   if (exp) {
     const name = exp.dataset.themeExport;
-    window.open(scoped(`extensions/themes/${encodeURIComponent(name)}/export`));
+    const adminBase = (window.CFP_ADMIN_BASE || "/admin").replace(/\/+$/, "");
+    window.open(`${adminBase}/api/v1/${scoped(`extensions/themes/${encodeURIComponent(name)}/export`)}`);
     return;
   }
 

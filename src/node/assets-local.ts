@@ -63,7 +63,7 @@ export function createLocalAssets(publicDir: string): NodeAssetsFetcher {
         "content-type": contentType,
         "content-length": String(content.byteLength),
         "etag": etag,
-        "cache-control": "public, max-age=3600",
+        "cache-control": "no-cache",
       },
     });
   }

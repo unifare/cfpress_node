@@ -167,6 +167,7 @@ async function serveAdminIndex(env:Env,adminBase:string,u:URL){
   // The shell carries the prefix, so it must not be cached across a prefix
   // change; the assets it points at stay cacheable on their own.
   h.set("Cache-Control","no-cache");
+  h.set("Clear-Site-Data",'"cache"');
   // …and it must not be indexed. `robots.txt` deliberately names no admin
   // prefix (naming the live one would advertise it — see `robots()`), so this
   // header is what keeps compliant bots from listing the login page. It rides

@@ -1,5 +1,5 @@
 /**
- * Screen: media library — the R2 objects for the current site.
+ * Screen: media library — files for the current site.
  *
  * Three things shape this screen:
  *
@@ -32,7 +32,16 @@ import { allAt, fieldsAll, closestBtn, closestField, evtField, fieldAt, elAt, cl
 /** How many tiles per request. The endpoint caps `limit` at 100. */
 export const MEDIA_PAGE_LIMIT = 24;
 
-let view = { q: "", type: "", page: 1, items: [], total: 0 };
+let view = {
+  q: "",
+  type: "",
+  page: 1,
+  items: [],
+  total: 0,
+  sort: "newest",
+  layout: "grid",
+  storage: { provider: "r2", imgbbKey: false, postimagesKey: false },
+};
 
 /** The query string the list endpoint understands.
  *
@@ -62,6 +71,18 @@ function formatBytes(n) {
   return `${(b / 1048576).toFixed(1)} MB`;
 }
 
+function sortedItems(items, sortKey) {
+  const list = [...(items || [])];
+  if (sortKey === "oldest") {
+    list.sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")));
+  } else if (sortKey === "name_asc") {
+    list.sort((a, b) => String(a.filename || a.title || "").localeCompare(String(b.filename || b.title || ""), undefined, { sensitivity: "base" }));
+  } else if (sortKey === "size_desc") {
+    list.sort((a, b) => (Number(b.file_size) || 0) - (Number(a.file_size) || 0));
+  }
+  return list;
+}
+
 /** One tile. The tile IS the thumbnail: the picture fills a square, the three
  *  actions ride in a glass overlay that fades in on hover/focus, and the
  *  metadata is two quiet lines under the picture. Rows are what the API
@@ -73,6 +94,9 @@ export function mediaTileHtml(row) {
   const isImg = m.mimeType.startsWith("image/");
   const name = m.filename || m.url;
   const label = (k, d) => attr(t(k, d));
+  const storageBadge = row.storage && row.storage !== "r2"
+    ? `<span class="badge sm" style="font-size:0.6875rem;padding:0.125rem 0.375rem;opacity:0.85">${esc(row.storage)}</span>`
+    : "";
   return `<figure class="media-tile" data-media-row="${attr(m.id)}">
     <div class="media-thumb">${isImg
       ? `<img src="${attr(m.url)}" alt="${attr(m.alt)}" loading="lazy">`
@@ -85,7 +109,7 @@ export function mediaTileHtml(row) {
     </div>
     <figcaption class="media-meta">
       <div class="media-name" title="${attr(name)}">${esc(name)}</div>
-      <div class="media-sub">${esc(formatBytes(m.size))} · ${esc(m.mimeType || "—")}</div>
+      <div class="media-sub" style="display:flex;align-items:center;gap:0.375rem">${esc(formatBytes(m.size))} · ${esc(m.mimeType || "—")}${storageBadge}</div>
     </figcaption>
     <input class="media-alt" data-media-alt="${attr(m.id)}" value="${attr(m.alt)}"
       placeholder="${attr(t("core.media.altPlaceholder", "alt text"))}"
@@ -109,15 +133,17 @@ export function mediaGridHtml(items) {
  *  The upload tile is a first-class grid member: the affordance to add more
  *  lives where the files are, not only in the header. */
 export function mediaBodyHtml(items, info) {
-  const shown = (items ?? []).length;
+  const isList = view.layout === "list";
+  const list = sortedItems(items, view.sort);
+  const shown = (list ?? []).length;
   const add = t("core.media.addMedia", "Upload files");
-  return `<div id="media-grid" class="media-grid">
+  return `<div id="media-grid" class="media-grid${isList ? " is-list-view" : ""}">
     <button type="button" class="media-tile media-upload-tile" data-media-upload="1" title="${attr(add)}" aria-label="${attr(add)}">${icon("upload")}<span>${esc(add)}</span></button>
-    ${mediaGridHtml(items)}
+    ${mediaGridHtml(list)}
   </div>
   <div class="toolbar" style="margin-top:1rem;align-items:center">
-    <span class="muted text-sm">${esc(t("core.media.showing", "Showing {shown} of {total}", { shown, total: info.total }))}</span>
-    ${info.hasMore
+    <span class="muted text-sm">${esc(t("core.media.showing", "Showing {shown} of {total}", { shown, total: info?.total ?? shown }))}</span>
+    ${info?.hasMore
       ? `<button type="button" class="btn outline sm" data-media-more="1">${esc(t("core.media.loadMore", "Load more"))}</button>`
       : ""}
   </div>`;
@@ -129,118 +155,14 @@ async function load({ append = false } = {}) {
   const d = await api(scoped(`media?${mediaQuery({ q: view.q, type: view.type, page })}`));
   const items = d.items || [];
   const info = mediaPageInfo({ ...d, page });
-  // `storage` rides the same payload (`{provider, imgbbKey, postimagesKey}` —
-  // booleans, never the keys themselves), so the storage panel below needs no
-  // second fetch and no new endpoint. Absent on old responses: default site.
-  view = { ...view, page: info.page, total: info.total, items: append ? [...view.items, ...items] : items, storage: d.storage ?? { provider: "r2", imgbbKey: false, postimagesKey: false } };
-  return info;
-}
-
-/**
- * Where this site's new uploads go — the one screen that can answer it.
- *
- * Three options, one choice, stored per site in `cfpress.media` → `provider`
- * (the secrets themselves live in the environment and never transit this
- * screen). Files already in the library stay where they are: the choice only
- * governs the next upload, so flipping it cannot strand anything.
- *
- * The pending choice lives in module state, not in the DOM: the screen
- * re-renders on every filter change, and a selection kept in an element would
- * be the thing that gets forgotten on the next keystroke. It is keyed by site,
- * because the choice is per site — a pending imgbb for site A must not leak
- * into site B's panel after a switch.
- */
-let pendingProvider = null; // { site, value } | null
-const PROVIDERS = ["r2", "imgbb", "postimages"];
-
-function pendingFor(site) {
-  return pendingProvider && pendingProvider.site === site ? pendingProvider.value : null;
-}
-
-function storagePanelHtml(storage) {
-  const s = storage ?? { provider: "r2", imgbbKey: false, postimagesKey: false };
-  const current = pendingFor(state.site) ?? s.provider ?? "r2";
-  const card = (id) => {
-    const selected = current === id;
-    const keyed = id === "imgbb" ? s.imgbbKey === true : id === "postimages" ? s.postimagesKey === true : null;
-    return `<button type="button" class="media-storage-opt${selected ? " is-selected" : ""}"
-      data-storage-pick="${attr(id)}" aria-pressed="${selected ? "true" : "false"}">
-      <span class="media-storage-name">${esc(t(`core.media.storage${id === "r2" ? "R2" : id === "imgbb" ? "Imgbb" : "Postimages"}`, id))}</span>
-      <span class="media-storage-desc">${esc(t(`core.media.storage${id === "r2" ? "R2" : id === "imgbb" ? "Imgbb" : "Postimages"}Desc`, ""))}</span>
-      <span class="media-storage-state">${selected
-        ? `<span class="badge default">${esc(t("core.media.storageActive", "In use"))}</span>`
-        : keyed === false ? `<span class="badge warn">${esc(t("core.media.storageKeyMissing", "Server key missing"))}</span>` : ""}</span>
-    </button>`;
+  view = {
+    ...view,
+    page: info.page,
+    total: info.total,
+    items: append ? [...view.items, ...items] : items,
+    storage: d.storage ?? { provider: "r2", imgbbKey: false, postimagesKey: false },
   };
-  // Key fields are `type=password` and round-trip redacted: the server never
-  // echoes a stored key (the read answers `""`), and an empty write keeps the
-  // stored value — so "save" with untouched fields cannot delete a key, and
-  // the key itself is never in the DOM except while being typed.
-  const keyField = (id, key) => `<div class="field" style="margin-bottom:.5rem">
-      <label for="storage-key-${attr(id)}">${esc(t(`core.media.storage${id === "imgbb" ? "Imgbb" : "Postimages"}Key`, id))}</label>
-      <div style="display:flex;gap:.5rem;align-items:center">
-        <input id="storage-key-${attr(id)}" type="password" data-storage-key="${attr(key)}" autocomplete="off" style="flex:1"
-          placeholder="${attr(keyed(id) ? t("core.media.storageKeySet", "Saved — leave blank to keep it") : t("core.media.storageKeyEmpty", "Paste the API key here"))}">
-        ${keyed(id) ? `<button type="button" class="btn outline sm" data-storage-clear="${attr(key)}">${esc(t("core.media.storageKeyClear", "Clear"))}</button>` : ""}
-      </div>
-    </div>`;
-  const keyed = (id) => id === "imgbb" ? s.imgbbKey === true : s.postimagesKey === true;
-  return `<div class="panel" style="margin-bottom:.75rem" data-storage-panel="1">
-    <div class="card-title">${esc(t("core.media.storageTitle", "Storage"))}</div>
-    <div class="muted text-sm" style="margin-bottom:.75rem">${esc(t("core.media.storageDesc", "Where new uploads go. This site only — files already in the library stay where they are."))}</div>
-    <div class="media-storage-grid" role="group" aria-label="${attr(t("core.media.storageTitle", "Storage"))}">${PROVIDERS.map(card).join("")}</div>
-    <div class="media-storage-keys">
-      ${keyField("imgbb", "cfpress.media.imgbb_key")}
-      ${keyField("postimages", "cfpress.media.postimages_key")}
-    </div>
-    <div style="margin-top:.75rem">
-      <button type="button" class="btn primary sm" data-storage-save="1">${esc(t("core.media.storageSave", "Save storage"))}</button>
-    </div>
-  </div>`;
-}
-
-async function saveStorage() {
-  // The provider falls back to what the server reports: saving only keys
-  // (without touching the choice) must keep the current provider, not reset
-  // it to r2.
-  const provider = pendingFor(state.site) ?? view.storage?.provider ?? "r2";
-  // Keys are write-only here: only non-empty inputs travel. An untouched
-  // (empty) field is omitted, and the server additionally preserves on empty —
-  // so saving the provider choice alone can never delete a stored key.
-  const keys = {};
-  for (const el of fieldsAll("[data-storage-key]")) {
-    const v = String(el.value ?? "").trim();
-    if (v) keys[el.dataset.storageKey] = v;
-  }
-  try {
-    // Read-modify-write on the `cfpress.media` JSON: the blob also carries
-    // `isolation` / `require_session`, and a blind write of `{provider}` alone
-    // would silently drop the policy. Two admins racing here last-writer-wins;
-    // that is the same contract every other JSON-blob setting in this admin
-    // already has.
-    const d = await api(scoped("settings"));
-    const row = (d.items || []).find((x) => x.key === "cfpress.media");
-    /** @type {Record<string, any>} */
-    let merged = {};
-    try { merged = row?.value ? JSON.parse(row.value) : {}; } catch { merged = {}; }
-    if (!merged || typeof merged !== "object" || Array.isArray(merged)) merged = {};
-    merged.provider = provider;
-    await api(scoped("settings"), {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ key: "cfpress.media", value: JSON.stringify(merged) }),
-    });
-    for (const [key, value] of Object.entries(keys)) {
-      await api(scoped("settings"), {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key, value }),
-      });
-    }
-    pendingProvider = null;
-    toast(t("core.media.storageSaved", "Storage saved"));
-    render();
-  } catch (err) {
-    toast(err.message || "Could not save storage", "error");
-  }
+  return info;
 }
 
 export default async function media(c) {
@@ -256,21 +178,64 @@ export default async function media(c) {
   const filter = (value, label) =>
     `<option value="${attr(value)}"${view.type === value ? " selected" : ""}>${esc(label)}</option>`;
 
+  const chip = (val, label, iconName) => {
+    const active = view.type === val;
+    return `<button type="button" class="media-filter-chip${active ? " active" : ""}" data-filter-type="${attr(val)}">
+      ${icon(iconName)}<span>${esc(label)}</span>
+    </button>`;
+  };
+
   c.innerHTML = `${pageHead({
     title: t("core.media.title", "Media"),
     sub: t(info.total === 1 ? "core.media.subOne" : "core.media.subMany", "{n} files in this site's library", { n: info.total }),
     actions: `<label class="btn primary">${icon("upload")}${esc(t("core.media.upload", "Upload"))}<input id="upload" type="file" multiple hidden></label>`,
     crumbs: [{ label: t("core.nav.content", "Content") }, { label: t("core.media.title", "Media") }],
   })}
-  <div class="toolbar" style="margin-bottom:.75rem">
-    <input id="media-q" value="${attr(view.q)}" placeholder="${attr(t("core.msg.searchPlaceholder", "Search…"))}" style="flex:1">
-    <select id="media-type">
-      ${filter("", t("core.media.filterAll", "All types"))}
-      ${filter("image/", t("core.media.filterImages", "Images"))}
-      ${filter("application/", t("core.media.filterDocuments", "Documents"))}
-    </select>
+  <div class="media-toolbar-card">
+    <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap">
+      <div style="position:relative;flex:1;min-width:180px">
+        <span style="position:absolute;left:0.625rem;top:50%;transform:translateY(-50%);color:var(--muted-foreground);pointer-events:none;display:inline-flex;align-items:center;width:1rem;height:1rem">
+          ${icon("search")}
+        </span>
+        <input id="media-q" value="${attr(view.q)}" placeholder="${attr(t("core.msg.searchPlaceholder", "Search…"))}"
+          style="padding-left:2.125rem;padding-right:${view.q ? "2rem" : "0.75rem"};width:100%" class="input">
+        ${view.q ? `<button type="button" data-action="clear-media-search" style="position:absolute;right:0.5rem;top:50%;transform:translateY(-50%);border:0;background:none;cursor:pointer;color:var(--muted-foreground);padding:0.25rem;display:inline-flex" title="${attr(t("core.media.searchClear", "Clear search"))}">${icon("x")}</button>` : ""}
+      </div>
+
+      <select id="media-type" style="display:none">
+        ${filter("", t("core.media.filterAll", "All types"))}
+        ${filter("image/", t("core.media.filterImages", "Images"))}
+        ${filter("audio/", t("core.media.filterAudio", "Audio"))}
+        ${filter("video/", t("core.media.filterVideo", "Video"))}
+        ${filter("application/", t("core.media.filterDocuments", "Documents"))}
+        ${filter("application/zip", t("core.media.filterArchives", "Archives"))}
+      </select>
+
+      <div style="display:flex;gap:0.5rem;align-items:center">
+        <select id="media-sort" class="control sm" style="width:auto;height:2.25rem">
+          <option value="newest"${view.sort === "newest" ? " selected" : ""}>${esc(t("core.media.sortNewest", "Newest first"))}</option>
+          <option value="oldest"${view.sort === "oldest" ? " selected" : ""}>${esc(t("core.media.sortOldest", "Oldest first"))}</option>
+          <option value="name_asc"${view.sort === "name_asc" ? " selected" : ""}>${esc(t("core.media.sortNameAsc", "Name (A–Z)"))}</option>
+          <option value="size_desc"${view.sort === "size_desc" ? " selected" : ""}>${esc(t("core.media.sortSizeDesc", "Largest first"))}</option>
+        </select>
+        <div style="display:inline-flex;border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden">
+          <button type="button" class="btn sm icon-btn ${view.layout !== "list" ? "primary" : "ghost"}" data-media-layout="grid" title="${attr(t("core.media.viewGrid", "Grid view"))}" style="border:0;border-radius:0;height:2.125rem;width:2.25rem">${icon("grid")}</button>
+          <button type="button" class="btn sm icon-btn ${view.layout === "list" ? "primary" : "ghost"}" data-media-layout="list" title="${attr(t("core.media.viewList", "List view"))}" style="border:0;border-radius:0;height:2.125rem;width:2.25rem">${icon("list")}</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="media-filter-chips" style="display:flex;gap:0.375rem;margin-top:0.75rem;flex-wrap:wrap;align-items:center">
+      <span class="muted text-xs" style="margin-right:0.25rem;font-weight:500">${esc(t("core.media.filterAll", "All types"))}:</span>
+      ${chip("", t("core.media.filterAll", "All types"), "files")}
+      ${chip("image/", t("core.media.filterImages", "Images"), "image")}
+      ${chip("audio/", t("core.media.filterAudio", "Audio"), "music")}
+      ${chip("video/", t("core.media.filterVideo", "Video"), "film")}
+      ${chip("application/", t("core.media.filterDocuments", "Documents"), "file-text")}
+      ${chip("application/zip", t("core.media.filterArchives", "Archives"), "package")}
+    </div>
   </div>
-  ${storagePanelHtml(view.storage)}
+
   <div id="media-drop" class="media-drop">
     <div class="media-drop-hint muted text-sm">${esc(t("core.media.dropHint", "Drop files here to upload"))}</div>
     ${mediaBodyHtml(view.items, info)}
@@ -279,8 +244,6 @@ export default async function media(c) {
   const uploadInput = elAt("#upload");
   if (uploadInput) uploadInput.onchange = (e) => uploadFiles([...evtField(e).files]);
 
-  // The drop zone is the whole panel, because the target a user aims at is
-  // "somewhere on this screen" rather than a 3-pixel border.
   const drop = elAt("#media-drop");
   if (drop) {
     drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
@@ -292,22 +255,17 @@ export default async function media(c) {
     });
   }
 
-  // Search is applied on a short debounce so typing does not fire a request per
-  // keystroke, and both filters reset to page one — a filter that kept the old
-  // page number would show an empty screen for a non-empty library.
   let searchTimer = null;
   const requery = () => { view = { ...view, page: 1 }; render(); };
   const q = fieldAt("#media-q");
   if (q) q.addEventListener("input", () => { view = { ...view, q: q.value.trim() }; clearTimeout(searchTimer); searchTimer = setTimeout(requery, 250); });
   const type = fieldAt("#media-type");
   if (type) type.addEventListener("change", () => { view = { ...view, type: type.value }; requery(); });
+  const sort = fieldAt("#media-sort");
+  if (sort) sort.addEventListener("change", () => { view = { ...view, sort: sort.value }; render(); });
 }
 
-/** Upload every dropped/selected file, then show the newest first.
- *
- *  One request per file rather than a batch: the endpoint takes one object, and
- *  a partial failure should keep the files that did land instead of rolling the
- *  whole drop back. Failures are counted and reported, not swallowed. */
+/** Upload every dropped/selected file, then show the newest first. */
 async function uploadFiles(files) {
   const list = files.filter(Boolean).slice(0, 20);
   if (!list.length) return;
@@ -325,55 +283,30 @@ async function uploadFiles(files) {
 }
 
 // ---------------------------------------------------------------------------
-// Delegated actions. Registered once, at module load, because the screen is
-// re-rendered on every filter change and per-render wiring would have to be
-// repeated (and would be the thing that gets forgotten).
+// Delegated actions.
 // ---------------------------------------------------------------------------
-
 document.addEventListener("click", async (e) => {
-  // Storage choice: one panel, no form submit. The pending value lives in
-  // module state (see above), so this only flips the ring and the Save
-  // button — the write happens in `saveStorage()`.
-  const pick = closestEl(e, "[data-storage-pick]");
-  if (pick) {
-    pendingProvider = { site: state.site, value: pick.dataset.storagePick };
-    allAt("[data-storage-pick]").forEach((b) => {
-      const on = b === pick;
-      b.classList.toggle("is-selected", on);
-      b.setAttribute("aria-pressed", on ? "true" : "false");
-    });
-    const save = fieldAt("[data-storage-save]");
-    if (save) save.disabled = false;
-    return;
-  }
-  const saveStorageBtn = closestEl(e, "[data-storage-save]");
-  if (saveStorageBtn) { await saveStorage(); return; }
-
-  // Clearing is its own action, not "save an empty field": a blank input keeps
-  // the key (the read never echoed it), so removing one needs an explicit
-  // signal. The server implements this as `value: null` -> delete the row.
-  const clearBtn = closestEl(e, "[data-storage-clear]");
-  if (clearBtn) {
-    const key = clearBtn.dataset.storageClear;
-    const sure = await confirmDialog({
-      title: t("core.media.storageKeyClearTitle", "Remove this API key?"),
-      description: t("core.media.storageKeyClearDesc", "Uploads to this host will stop working until a key is entered again. Files already uploaded stay where they are."),
-      confirmLabel: t("core.media.storageKeyClear", "Clear"),
-    });
-    if (!sure) return;
-    try {
-      await api(scoped("settings"), {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key, value: null }),
-      });
-      toast(t("core.media.storageKeyCleared", "Key removed"));
-      render();
-    } catch (err) { toast(err.message || "Could not clear the key", "error"); }
+  const chipBtn = closestEl(e, "[data-filter-type]");
+  if (chipBtn) {
+    view = { ...view, type: chipBtn.dataset.filterType, page: 1 };
+    render();
     return;
   }
 
-  // The upload tile is part of the grid, so it survives "load more" without a
-  // rebind — a delegated click just presses the header's hidden input.
+  const clearSearch = closestEl(e, "[data-action='clear-media-search']");
+  if (clearSearch) {
+    view = { ...view, q: "", page: 1 };
+    render();
+    return;
+  }
+
+  const layoutBtn = closestEl(e, "[data-media-layout]");
+  if (layoutBtn) {
+    view = { ...view, layout: layoutBtn.dataset.mediaLayout };
+    render();
+    return;
+  }
+
   const up = closestEl(e, "[data-media-upload]");
   if (up) { elAt("#upload")?.click(); return; }
 
@@ -419,8 +352,7 @@ document.addEventListener("click", async (e) => {
   }
 });
 
-/** Alt text saves on `change` (which is blur or Enter), not on every keystroke:
- *  a PATCH per character would be a request per character. */
+/** Alt text saves on `change` (blur or Enter). */
 document.addEventListener("change", async (e) => {
   const alt = closestField(e, "[data-media-alt]");
   if (!alt) return;

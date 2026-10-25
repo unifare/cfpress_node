@@ -11,7 +11,7 @@
  *   7. Platform (`platform`)       — install-wide settings (`admin.path`, etc.), shown only with `platform.manage`
  */
 import { api, scoped, state, adminBase } from "../state.js";
-import { pageHead } from "../shell.js";
+import { pageHead, render } from "../shell.js";
 import { icon } from "../../icons.js";
 import { t } from "../i18n.js";
 import { allAt, fieldsAll, closestEl, attr, esc, toast, confirmDialog } from "../../ui.js";
@@ -101,6 +101,8 @@ export default async function settings(c) {
   } catch {
     mediaCfg = { provider: "r2", require_session: false };
   }
+  const hasImgbbKey = items.some((x) => x.key === "cfpress.media.imgbb_key");
+  const hasPostimagesKey = items.some((x) => x.key === "cfpress.media.postimages_key");
 
   // Platform settings are readable and writable only with `platform.manage`.
   let hasPlatform = false;
@@ -269,10 +271,11 @@ export default async function settings(c) {
           <div class="field">
             <label>${esc(t("core.media.storageTitle", "Storage"))}</label>
             <select class="control" id="settings-media-provider">
-              <option value="r2"${mediaCfg.provider === "r2" ? " selected" : ""}>${esc(t("core.media.storageR2", "This server (R2)"))}</option>
+              <option value="r2"${mediaCfg.provider === "r2" ? " selected" : ""}>${esc(t("core.media.storageR2", "Local server storage"))}</option>
               <option value="imgbb"${mediaCfg.provider === "imgbb" ? " selected" : ""}>${esc(t("core.media.storageImgbb", "imgbb"))}</option>
               <option value="postimages"${mediaCfg.provider === "postimages" ? " selected" : ""}>${esc(t("core.media.storagePostimages", "postimages.org"))}</option>
             </select>
+            <div class="hint">${esc(t("core.media.storageDesc", "Where new uploads go. This site only — files already in the library stay where they are."))}</div>
           </div>
           <div class="field">
             <label>${esc(t("core.settings.mediaSessionReq", "Require active session to view uploaded media"))}</label>
@@ -286,18 +289,30 @@ export default async function settings(c) {
 
         <div class="field-grid" style="margin-top:1rem">
           <div class="field">
-            <label>${esc(t("core.media.storageImgbbKey", "imgbb API key"))}</label>
-            <div class="row" style="gap:0.5rem">
-              <input type="password" class="input" data-media-secret="cfpress.media.imgbb_key" autocomplete="off" placeholder="${attr(t("core.media.storageKeySet", "Saved — leave blank to keep it"))}" />
-              <button type="button" class="btn outline sm" data-clear-media-key="cfpress.media.imgbb_key">${esc(t("core.media.storageKeyClear", "Clear"))}</button>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.25rem">
+              <label style="margin:0">${esc(t("core.media.storageImgbbKey", "imgbb API key"))}</label>
+              ${hasImgbbKey
+                ? `<span class="badge default">${esc(t("core.media.keyConfigured", "Key configured"))}</span>`
+                : `<span class="badge" style="opacity:0.6">${esc(t("core.media.keyNotConfigured", "Not configured"))}</span>`}
             </div>
+            <div class="row" style="gap:0.5rem">
+              <input type="password" class="input" data-media-secret="cfpress.media.imgbb_key" autocomplete="off" placeholder="${attr(hasImgbbKey ? t("core.media.storageKeySet", "Saved — leave blank to keep it") : t("core.media.storageKeyEmpty", "Paste the API key here"))}" />
+              ${hasImgbbKey ? `<button type="button" class="btn outline sm" data-clear-media-key="cfpress.media.imgbb_key">${esc(t("core.media.storageKeyClear", "Clear"))}</button>` : ""}
+            </div>
+            <div class="hint">${esc(t("core.media.storageImgbbDesc", "Free image host. Needs IMGBB_API_KEY on the server."))}</div>
           </div>
           <div class="field">
-            <label>${esc(t("core.media.storagePostimagesKey", "postimages.org API key"))}</label>
-            <div class="row" style="gap:0.5rem">
-              <input type="password" class="input" data-media-secret="cfpress.media.postimages_key" autocomplete="off" placeholder="${attr(t("core.media.storageKeySet", "Saved — leave blank to keep it"))}" />
-              <button type="button" class="btn outline sm" data-clear-media-key="cfpress.media.postimages_key">${esc(t("core.media.storageKeyClear", "Clear"))}</button>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.25rem">
+              <label style="margin:0">${esc(t("core.media.storagePostimagesKey", "postimages.org API key"))}</label>
+              ${hasPostimagesKey
+                ? `<span class="badge default">${esc(t("core.media.keyConfigured", "Key configured"))}</span>`
+                : `<span class="badge" style="opacity:0.6">${esc(t("core.media.keyNotConfigured", "Not configured"))}</span>`}
             </div>
+            <div class="row" style="gap:0.5rem">
+              <input type="password" class="input" data-media-secret="cfpress.media.postimages_key" autocomplete="off" placeholder="${attr(hasPostimagesKey ? t("core.media.storageKeySet", "Saved — leave blank to keep it") : t("core.media.storageKeyEmpty", "Paste the API key here"))}" />
+              ${hasPostimagesKey ? `<button type="button" class="btn outline sm" data-clear-media-key="cfpress.media.postimages_key">${esc(t("core.media.storageKeyClear", "Clear"))}</button>` : ""}
+            </div>
+            <div class="hint">${esc(t("core.media.storagePostimagesDesc", "Free image host. Needs POSTIMAGES_API_KEY on the server."))}</div>
           </div>
         </div>
       </div>
@@ -424,8 +439,13 @@ document.addEventListener("click", async (e) => {
       danger: true,
     });
     if (ok) {
-      await api(`${scoped("settings")}&key=${encodeURIComponent(key)}`, { method: "DELETE" });
+      await api(scoped("settings"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key, value: null }),
+      });
       toast(t("core.media.storageKeyCleared", "Key removed"));
+      render();
     }
     return;
   }
@@ -468,6 +488,7 @@ document.addEventListener("click", async (e) => {
       }
     }
     toast(t("core.media.storageSaved", "Storage saved"));
+    render();
     return;
   }
   if (a.dataset.action === "save-platform-settings") {

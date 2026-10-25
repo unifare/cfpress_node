@@ -366,6 +366,7 @@ $Script:Suites = [ordered]@{
     'widgets-categories' = 'tests/suites/widgets-categories.test.mjs'
     'markdown'           = 'tests/suites/markdown.test.mjs'
     'extension-doctor'   = 'tests/suites/extension-doctor.test.mjs'
+    'drizzle-orm'        = 'tests/suites/drizzle-orm.test.mjs'
     'launcher-parity'    = 'tests/suites/launcher-parity.test.mjs'
 }
 

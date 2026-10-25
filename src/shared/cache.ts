@@ -2,6 +2,7 @@ import { Env } from "./types";
 import { now } from "./repo";
 import { randomId } from "./crypto";
 import { featureEnabled } from "./features";
+import { getDb, contentCacheVersions, eq, sql } from "./db";
 
 /**
  * Content-cache versioning, per site.
@@ -77,15 +78,24 @@ function versionKvKey(siteId: string) {
 
 export async function bumpContentCache(env: Env, siteId: string) {
   const id = versionRowId(siteId);
-  const row = await env.DB.prepare("SELECT version FROM content_cache_versions WHERE id=?")
-    .bind(id)
-    .first<any>();
+  const db = getDb(env);
+  const row = await db
+    .select({ version: contentCacheVersions.version })
+    .from(contentCacheVersions)
+    .where(eq(contentCacheVersions.id, id))
+    .get();
   const version = Number(row?.version || 1) + 1;
-  await env.DB.prepare(
-    "INSERT INTO content_cache_versions(id,version,updated_at) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET version=excluded.version,updated_at=excluded.updated_at"
-  )
-    .bind(id, version, now())
-    .run();
+  const ts = now();
+  await db
+    .insert(contentCacheVersions)
+    .values({ id, version, updated_at: ts })
+    .onConflictDoUpdate({
+      target: contentCacheVersions.id,
+      set: {
+        version: sql`excluded.version`,
+        updated_at: sql`excluded.updated_at`,
+      },
+    });
   if (await featureEnabled(env, siteId, "cache_mirror_kv")) {
     // Best effort. The D1 write above is authoritative and has committed;
     // a KV failure here must not fail the caller's save.
@@ -108,9 +118,11 @@ export async function cacheVersion(env: Env, siteId: string) {
   } catch {
     /* KV unavailable — fall back to the authoritative row */
   }
-  const row = await env.DB.prepare("SELECT version FROM content_cache_versions WHERE id=?")
-    .bind(versionRowId(siteId))
-    .first<any>();
+  const row = await getDb(env)
+    .select({ version: contentCacheVersions.version })
+    .from(contentCacheVersions)
+    .where(eq(contentCacheVersions.id, versionRowId(siteId)))
+    .get();
   return String(row?.version || 1);
 }
 

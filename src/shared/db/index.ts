@@ -1,6 +1,7 @@
 export * from "./schema";
 export * from "./client";
 export * from "./dynamic-ddl";
+export * from "./drivers";
 export {
   eq,
   ne,

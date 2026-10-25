@@ -86,6 +86,7 @@ const suites = [
   ["bundled themes", "suites/theme-bundled.test.mjs"],
   ["widget categories (all/core/theme/plugin/custom)", "suites/widgets-categories.test.mjs"],
   ["extension doctor (pre-flight checks)", "suites/extension-doctor.test.mjs"],
+  ["drizzle orm & multi-dialect layer", "suites/drizzle-orm.test.mjs"],
   // The launcher parity check is pure text analysis over scripts/cfpress.sh and
   // scripts/cfpress.ps1 — no Worker, no database. It guards the promise those
   // two files make to each other ("one set of actions"), which decays silently

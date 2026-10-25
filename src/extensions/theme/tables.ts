@@ -36,6 +36,7 @@
 import { Env } from "../../shared/types";
 import { now } from "../../shared/repo";
 import { isMultilingual, siteDefaultLocale } from "../../platform/i18n/locale-registry";
+import { getDb, themeTableDefs, eq, and, asc } from "../../shared/db";
 import {
   alterAddColumnDdl,
   existingColumnsForDialect,
@@ -430,20 +431,33 @@ export async function listOwnerTableDefs(
   owner?: { type: OwnerType; name: string }
 ): Promise<ThemeTableDef[]> {
   try {
+    const db = getDb(env);
     if (owner) {
-      const r = await env.DB.prepare(
-        "SELECT * FROM theme_table_defs WHERE site_id=? AND owner_type=? AND owner_name=? ORDER BY logical_name"
-      )
-        .bind(siteId, owner.type, owner.name)
+      const rows = await db
+        .select()
+        .from(themeTableDefs)
+        .where(
+          and(
+            eq(themeTableDefs.site_id, siteId),
+            eq(themeTableDefs.owner_type, owner.type),
+            eq(themeTableDefs.owner_name, owner.name)
+          )
+        )
+        .orderBy(asc(themeTableDefs.logical_name))
         .all();
-      return ((r.results as any[]) ?? []).map(hydrate);
+      return (rows ?? []).map(hydrate);
     }
-    const r = await env.DB.prepare(
-      "SELECT * FROM theme_table_defs WHERE site_id=? ORDER BY owner_type, owner_name, logical_name"
-    )
-      .bind(siteId)
+    const rows = await db
+      .select()
+      .from(themeTableDefs)
+      .where(eq(themeTableDefs.site_id, siteId))
+      .orderBy(
+        asc(themeTableDefs.owner_type),
+        asc(themeTableDefs.owner_name),
+        asc(themeTableDefs.logical_name)
+      )
       .all();
-    return ((r.results as any[]) ?? []).map(hydrate);
+    return (rows ?? []).map(hydrate);
   } catch {
     return [];
   }
@@ -479,11 +493,18 @@ export async function resolveOwnerTable(
   logicalName: string
 ): Promise<ThemeTableDef | null> {
   try {
-    const r = await env.DB.prepare(
-      "SELECT * FROM theme_table_defs WHERE site_id=? AND owner_type=? AND owner_name=? AND logical_name=?"
-    )
-      .bind(siteId, ownerType, ownerName, logicalName)
-      .first<any>();
+    const r = await getDb(env)
+      .select()
+      .from(themeTableDefs)
+      .where(
+        and(
+          eq(themeTableDefs.site_id, siteId),
+          eq(themeTableDefs.owner_type, ownerType),
+          eq(themeTableDefs.owner_name, ownerName),
+          eq(themeTableDefs.logical_name, logicalName)
+        )
+      )
+      .get();
     return r ? hydrate(r) : null;
   } catch {
     return null;

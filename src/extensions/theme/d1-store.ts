@@ -1,9 +1,10 @@
 /**
- * D1-backed storage for theme templates & assets.
- * Used when Cloudflare R2 is not configured, or as a lightweight SQL storage alternative.
+ * Database-backed storage for theme templates & assets.
+ * Used when object storage is not configured, or as a lightweight SQL storage alternative.
  */
 import { Env } from "../../shared/types";
 import { safeZipPath } from "../security";
+import { getDb, platformSettings, themeFiles, eq, and, asc } from "../../shared/db";
 
 export interface D1ThemeFile {
   id: string;
@@ -85,16 +86,19 @@ export function base64ToBytes(base64: string): Uint8Array {
  * Defaults to 512 KB (512 * 1024 bytes).
  */
 export async function getMaxBinarySizeLimitBytes(env: Env): Promise<number> {
-  const row = await env.DB.prepare(
-    "SELECT value FROM platform_settings WHERE key=? LIMIT 1"
-  ).bind("theme.max_binary_size_kb").first<any>();
+  const row = await getDb(env)
+    .select({ value: platformSettings.value })
+    .from(platformSettings)
+    .where(eq(platformSettings.key, "theme.max_binary_size_kb"))
+    .limit(1)
+    .get();
   const parsed = parseInt(String(row?.value || "512"), 10);
   const kb = isNaN(parsed) || parsed < 0 ? 512 : parsed;
   return kb * 1024;
 }
 
 /**
- * Save a single file into D1 theme_files table.
+ * Save a single file into theme_files table.
  * If the file is binary and exceeds maxBinaryLimitBytes, throws an Error.
  */
 export async function saveThemeFileToD1(
@@ -153,7 +157,7 @@ export async function saveThemeFileToD1(
 }
 
 /**
- * Read text content of a theme file from D1.
+ * Read text content of a theme file from database.
  * Returns null if not found or if the file is binary.
  */
 export async function getThemeFileTextFromD1(
@@ -162,9 +166,12 @@ export async function getThemeFileTextFromD1(
   relPath: string
 ): Promise<string | null> {
   const norm = relPath.replace(/^\.\//, "").replace(/\\/g, "/");
-  const row = await env.DB.prepare(
-    "SELECT content, is_binary FROM theme_files WHERE theme_name=? AND file_path=? LIMIT 1"
-  ).bind(themeName, norm).first<any>();
+  const row = await getDb(env)
+    .select({ content: themeFiles.content, is_binary: themeFiles.is_binary })
+    .from(themeFiles)
+    .where(and(eq(themeFiles.theme_name, themeName), eq(themeFiles.file_path, norm)))
+    .limit(1)
+    .get();
 
   if (!row) return null;
   if (row.is_binary === 1) return null;
@@ -172,7 +179,7 @@ export async function getThemeFileTextFromD1(
 }
 
 /**
- * Read full entry of a theme file from D1.
+ * Read full entry of a theme file from database.
  */
 export async function getThemeFileEntryFromD1(
   env: Env,
@@ -180,9 +187,17 @@ export async function getThemeFileEntryFromD1(
   relPath: string
 ): Promise<{ content: string; contentType: string; isBinary: boolean; size: number } | null> {
   const norm = relPath.replace(/^\.\//, "").replace(/\\/g, "/");
-  const row = await env.DB.prepare(
-    "SELECT content, content_type, is_binary, size_bytes FROM theme_files WHERE theme_name=? AND file_path=? LIMIT 1"
-  ).bind(themeName, norm).first<any>();
+  const row = await getDb(env)
+    .select({
+      content: themeFiles.content,
+      content_type: themeFiles.content_type,
+      is_binary: themeFiles.is_binary,
+      size_bytes: themeFiles.size_bytes,
+    })
+    .from(themeFiles)
+    .where(and(eq(themeFiles.theme_name, themeName), eq(themeFiles.file_path, norm)))
+    .limit(1)
+    .get();
 
   if (!row) return null;
   return {
@@ -194,47 +209,57 @@ export async function getThemeFileEntryFromD1(
 }
 
 /**
- * Check whether a theme has any files stored in D1.
+ * Check whether a theme has any files stored in database.
  */
 export async function hasThemeFilesInD1(env: Env, themeName: string): Promise<boolean> {
-  const row = await env.DB.prepare(
-    "SELECT 1 FROM theme_files WHERE theme_name=? LIMIT 1"
-  ).bind(themeName).first();
+  const row = await getDb(env)
+    .select({ id: themeFiles.id })
+    .from(themeFiles)
+    .where(eq(themeFiles.theme_name, themeName))
+    .limit(1)
+    .get();
   return !!row;
 }
 
 /**
- * Delete all files or a specific file of a theme from D1.
+ * Delete all files or a specific file of a theme from database.
  */
 export async function deleteThemeFilesFromD1(
   env: Env,
   themeName: string,
   relPath?: string
 ): Promise<void> {
+  const db = getDb(env);
   if (relPath) {
     const norm = relPath.replace(/^\.\//, "").replace(/\\/g, "/");
-    await env.DB.prepare(
-      "DELETE FROM theme_files WHERE theme_name=? AND file_path=?"
-    ).bind(themeName, norm).run();
+    await db
+      .delete(themeFiles)
+      .where(and(eq(themeFiles.theme_name, themeName), eq(themeFiles.file_path, norm)));
   } else {
-    await env.DB.prepare(
-      "DELETE FROM theme_files WHERE theme_name=?"
-    ).bind(themeName).run();
+    await db.delete(themeFiles).where(eq(themeFiles.theme_name, themeName));
   }
 }
 
 /**
- * List all files stored in D1 for a theme.
+ * List all files stored in database for a theme.
  */
 export async function listThemeFilesFromD1(
   env: Env,
   themeName: string
 ): Promise<Array<{ path: string; size: number; isBinary: boolean; contentType: string }>> {
-  const res = await env.DB.prepare(
-    "SELECT file_path, size_bytes, is_binary, content_type FROM theme_files WHERE theme_name=? ORDER BY file_path ASC"
-  ).bind(themeName).all<any>();
+  const rows = await getDb(env)
+    .select({
+      file_path: themeFiles.file_path,
+      size_bytes: themeFiles.size_bytes,
+      is_binary: themeFiles.is_binary,
+      content_type: themeFiles.content_type,
+    })
+    .from(themeFiles)
+    .where(eq(themeFiles.theme_name, themeName))
+    .orderBy(asc(themeFiles.file_path))
+    .all();
 
-  return (res.results || []).map((r) => ({
+  return (rows || []).map((r) => ({
     path: String(r.file_path),
     size: Number(r.size_bytes),
     isBinary: r.is_binary === 1,

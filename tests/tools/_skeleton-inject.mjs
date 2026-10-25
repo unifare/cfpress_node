@@ -1983,8 +1983,8 @@ const SCENARIOS = [
   {
     label: "the README badge drifts from the real suite count",
     file: README,
-    before: ["tests-34%20suites"],
-    after: ["tests-33%20suites"],
+    before: ["tests-35%20suites"],
+    after: ["tests-34%20suites"],
     runs: [["tests/suites/architecture.test.mjs", "package.json, src/shared/version.ts and the README agree"]],
   },
   {
@@ -2003,6 +2003,13 @@ const SCENARIOS = [
     after: ['return ok({ ok: true, version: "0.8.0" });'],
     runs: [["tests/suites/architecture.test.mjs", "the product version is written only in src/shared/version.ts"]],
   },
+  {
+    label: "a table in PLATFORM_SCHEMA is missing from src/shared/db/schema.ts",
+    file: join(ROOT, "src/shared/db/schema.ts"),
+    before: ['export const apiKeys = sqliteTable("api_keys", {'],
+    after: ['export const apiKeys = sqliteTable("api_keys_drifted", {'],
+    runs: [["tests/suites/architecture.test.mjs", "every PLATFORM_SCHEMA table is defined in src/shared/db/schema.ts"]],
+  },
 
 ];
 /** Every file any scenario may touch, hashed before and after. */
@@ -2010,6 +2017,7 @@ const WATCHED = [...new Set([SCHEMA, EVENTS, ARCH, SCOPE, MANIFEST, VALIDATION,
   join(ROOT, "src/shared/features.ts"),
   join(ROOT, "src/shared/types.ts"),
   join(ROOT, "src/shared/bundled.ts"),
+  join(ROOT, "src/shared/db/schema.ts"),
   PACKS,
   SYNC_THEMES,
   FIXTURE_LEAK,

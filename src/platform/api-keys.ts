@@ -6,6 +6,7 @@
  */
 import { Env, SessionUser } from "../shared/types";
 import { randomId } from "../shared/crypto";
+import { getDb, apiKeys, eq, and, desc } from "../shared/db";
 
 export interface ApiKeyRecord {
   id: string;
@@ -125,10 +126,19 @@ export async function createApiKey(
   const scopesJson = JSON.stringify(scopes.length ? scopes : ["*"]);
   const sitesJson = JSON.stringify(sites.length ? sites : ["*"]);
 
-  await env.DB.prepare(`
-    INSERT INTO api_keys (id, user_id, name, key_prefix, key_hash, scopes, sites, status, expires_at, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
-  `).bind(id, userId, cleanName, keyPrefix, keyHash, scopesJson, sitesJson, expiresAt, now).run();
+  await getDb(env).insert(apiKeys).values({
+    id,
+    user_id: userId,
+    name: cleanName,
+    key_prefix: keyPrefix,
+    key_hash: keyHash,
+    scopes: scopesJson,
+    sites: sitesJson,
+    status: "active",
+    expires_at: expiresAt,
+    last_used_at: null,
+    created_at: now,
+  });
 
   return {
     id,
@@ -147,32 +157,50 @@ export async function createApiKey(
  * List API keys (without secret tokens) for the current user or superadmin.
  */
 export async function listApiKeys(env: Env, userId?: string, status = "active"): Promise<Omit<ApiKeyRecord, "key_hash">[]> {
-  const query = userId
-    ? (status ? "SELECT id, user_id, name, key_prefix, scopes, sites, status, expires_at, last_used_at, created_at FROM api_keys WHERE user_id=? AND status=? ORDER BY created_at DESC"
-              : "SELECT id, user_id, name, key_prefix, scopes, sites, status, expires_at, last_used_at, created_at FROM api_keys WHERE user_id=? ORDER BY created_at DESC")
-    : (status ? "SELECT id, user_id, name, key_prefix, scopes, sites, status, expires_at, last_used_at, created_at FROM api_keys WHERE status=? ORDER BY created_at DESC"
-              : "SELECT id, user_id, name, key_prefix, scopes, sites, status, expires_at, last_used_at, created_at FROM api_keys ORDER BY created_at DESC");
+  const db = getDb(env);
+  const cols = {
+    id: apiKeys.id,
+    user_id: apiKeys.user_id,
+    name: apiKeys.name,
+    key_prefix: apiKeys.key_prefix,
+    scopes: apiKeys.scopes,
+    sites: apiKeys.sites,
+    status: apiKeys.status,
+    expires_at: apiKeys.expires_at,
+    last_used_at: apiKeys.last_used_at,
+    created_at: apiKeys.created_at,
+  };
+  const whereCond = userId
+    ? status
+      ? and(eq(apiKeys.user_id, userId), eq(apiKeys.status, status))
+      : eq(apiKeys.user_id, userId)
+    : status
+      ? eq(apiKeys.status, status)
+      : undefined;
 
-  const stmt = userId
-    ? (status ? env.DB.prepare(query).bind(userId, status) : env.DB.prepare(query).bind(userId))
-    : (status ? env.DB.prepare(query).bind(status) : env.DB.prepare(query));
-  const rows = await stmt.all<any>();
-  return (rows.results as any[]) ?? [];
+  const query = whereCond
+    ? db.select(cols).from(apiKeys).where(whereCond).orderBy(desc(apiKeys.created_at))
+    : db.select(cols).from(apiKeys).orderBy(desc(apiKeys.created_at));
+  const rows = await query.all();
+  return (rows as any[]) ?? [];
 }
 
 /**
  * Revoke an API key.
  */
 export async function revokeApiKey(env: Env, keyId: string, userId?: string): Promise<boolean> {
-  const checkQuery = userId
-    ? "SELECT id, status FROM api_keys WHERE id=? AND user_id=? LIMIT 1"
-    : "SELECT id, status FROM api_keys WHERE id=? LIMIT 1";
-  const row = await (userId ? env.DB.prepare(checkQuery).bind(keyId, userId) : env.DB.prepare(checkQuery).bind(keyId)).first<any>();
+  const db = getDb(env);
+  const whereCond = userId
+    ? and(eq(apiKeys.id, keyId), eq(apiKeys.user_id, userId))
+    : eq(apiKeys.id, keyId);
+  const row = await db
+    .select({ id: apiKeys.id, status: apiKeys.status })
+    .from(apiKeys)
+    .where(whereCond)
+    .limit(1)
+    .get();
   if (!row) return false;
 
-  const updateQuery = userId
-    ? "UPDATE api_keys SET status='revoked' WHERE id=? AND user_id=?"
-    : "UPDATE api_keys SET status='revoked' WHERE id=?";
-  await (userId ? env.DB.prepare(updateQuery).bind(keyId, userId) : env.DB.prepare(updateQuery).bind(keyId)).run();
+  await db.update(apiKeys).set({ status: "revoked" }).where(whereCond);
   return true;
 }

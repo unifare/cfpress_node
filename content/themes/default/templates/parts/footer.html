@@ -1,0 +1,38 @@
+<footer>
+  {{! Footer menu — one entry per item of the menu assigned to the theme's
+      `footer` location. A site with no footer menu renders nothing here. }}
+  {{#if menu.footer}}<nav class="foot-nav">{{#each menu.footer as item}}<a href="{{item.url}}"{{#if item.target}} target="{{item.target}}"{{/if}}>{{item.title}}</a>{{/each}}</nav>
+  {{else}}{{#if menu.footer_html}}<nav class="foot-nav">{{{menu.footer_html}}}</nav>{{/if}}{{/if}}
+  {{! Footer widgets — the theme's declared `footer` sidebar. }}
+  {{#if widgets.footer}}<div class="wrap foot-widgets">{{{widgets.footer}}}</div>{{/if}}
+  <div class="wrap">
+    <div class="foot">
+      <div>
+        <a class="brand" href="/{{locale}}"><span class="brand-mark">墨</span>{{site.title}}</a>
+        {{#if site.description}}<p>{{site.description}}</p>{{/if}}
+      </div>
+      <div>
+        <h6>{{default(theme.strings.footer.content, "Content")}}</h6>
+        <a href="/{{locale}}">{{default(theme.strings.footer.all, "All articles")}}</a>
+        <a href="/sitemap.xml">{{default(theme.strings.footer.sitemap, "Sitemap")}}</a>
+      </div>
+      <div>
+        <h6>{{default(theme.strings.footer.subscribe, "Subscribe")}}</h6>
+        <a href="/{{locale}}/feed.xml">{{default(theme.strings.footer.rss, "RSS feed")}}</a>
+        <a href="/robots.txt">{{default(theme.strings.footer.robots, "robots.txt")}}</a>
+      </div>
+      <div>
+        <h6>{{default(theme.strings.footer.about, "About")}}</h6>
+        <a href="/{{locale}}">{{default(theme.strings.footer.home, "Back to the front page")}}</a>
+        {{! No admin link here, on purpose. The admin prefix is configurable and
+            hidden (`admin.path`); any address on the public front end is a
+            signpost to scanners — and it 404s the moment the admin moves. The
+            operator knows the prefix because they chose it. }}
+      </div>
+    </div>
+    <div class="copy">
+      <span>{{site.title}}{{#if site.description}} · {{site.description}}{{/if}}</span>
+      <span>{{theme.title}} {{theme.version}}</span>
+    </div>
+  </div>
+</footer>

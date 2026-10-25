@@ -1,0 +1,24 @@
+{
+  "name": "bad-plugin",
+  "title": "反面教材示例插件 (Bad Plugin Example)",
+  "version": "1.0.0",
+  "description": "专为体检系统打造的反面教材插件，内置命名空间违规、非法表名侵犯与未识别屏警告",
+  "author": "CFPress Anti-pattern Test",
+  "adminMenus": [
+    {
+      "id": "bad-plugin-menu",
+      "label": "坏插件菜单",
+      "label_key": "common.shared.invalid_key",
+      "icon": "settings",
+      "screen": "invalid-screen:xyz"
+    }
+  ],
+  "tables": [
+    {
+      "name": "invalid-table-name!",
+      "fields": [
+        { "name": "content", "type": "text" }
+      ]
+    }
+  ]
+}

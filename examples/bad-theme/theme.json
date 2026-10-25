@@ -1,0 +1,35 @@
+{
+  "name": "bad-theme",
+  "title": "反面教材示例主题 (Bad Theme Example)",
+  "version": "1.0.0",
+  "description": "专为体检系统打造的反面教材主题，内置命名空间违规、Rule 41 多语言表设计错误与模板语法缺陷",
+  "author": "CFPress Anti-pattern Test",
+  "tables": [
+    {
+      "name": "theme_bad_books",
+      "fields": [
+        { "name": "title", "type": "text" },
+        { "name": "summary", "type": "longtext" },
+        { "name": "price", "type": "number" }
+      ],
+      "language": {
+        "strategy": "sidecar",
+        "translatable": ["price"]
+      }
+    }
+  ],
+  "adminMenus": [
+    {
+      "id": "bad-menu",
+      "label": "坏菜单 (Wrong Namespace)",
+      "label_key": "global.invalid.namespace.key",
+      "icon": "alert-triangle",
+      "screen": "theme-page:bad-view",
+      "args": { "view": "templates/missing-admin-view.html" }
+    }
+  ],
+  "templates": {
+    "home": "templates/home.html",
+    "missing_tpl": "templates/not-found-tpl.html"
+  }
+}

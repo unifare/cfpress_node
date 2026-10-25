@@ -1,0 +1,225 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+
+<!-- Hero 奢华大主视觉 -->
+<section class="resort-hero">
+  <div class="hero-overlay"></div>
+  <div class="hero-glow"></div>
+  <div class="resort-container hero-container">
+    <div class="hero-eyebrow">
+      <span>✦</span> WORLD LUXURY HOTEL AWARDS 2026 年度旗舰度假酒店
+    </div>
+    <h1 class="hero-title">
+      沉浸于碧海流金的极致私享圣境
+    </h1>
+    <p class="hero-desc">
+      270° 环幕海景私人泳池别墅、米其林三星主厨定制餐宴、私人游艇出海礼遇，为您缔造难忘的避世假期待遇。
+    </p>
+    <div class="hero-cta-group">
+      <a href="/{{locale}}/rooms" class="btn btn-gold btn-lg">
+        品鉴臻选客房 &rarr;
+      </a>
+      <a href="/{{locale}}/about" class="btn btn-outline btn-lg">
+        尊享礼遇
+      </a>
+    </div>
+  </div>
+
+  <!-- 浮动快速查房预订条 -->
+  <div class="resort-container search-bar-container">
+    <div class="resort-search-bar">
+      <div class="search-field">
+        <label>入住日期 Check-in</label>
+        <input type="date" id="homeCheckIn">
+      </div>
+      <div class="search-field">
+        <label>离店日期 Check-out</label>
+        <input type="date" id="homeCheckOut">
+      </div>
+      <div class="search-field">
+        <label>宾客人数 Guests</label>
+        <select id="homeGuests">
+          <option value="1">1 Adult (单人入住)</option>
+          <option value="2" selected>2 Adults (双人私享)</option>
+          <option value="3">3 Adults (家庭出行)</option>
+          <option value="4">4+ Adults (私邸定制)</option>
+        </select>
+      </div>
+      <div class="search-field">
+        <label>房型偏好 Suite Category</label>
+        <select id="homeCategory">
+          <option value="">全部臻选房型 (All Suites)</option>
+          <option value="villa">Ocean Villa (海景泳池别墅)</option>
+          <option value="suite">Horizon Suite (天际全景套房)</option>
+          <option value="cliff">Cliffside Pavilion (悬崖私汤公馆)</option>
+        </select>
+      </div>
+      <div class="search-btn-wrapper">
+        <button class="btn btn-gold btn-search" onclick="doSearchRooms()">
+          查询实时空房
+        </button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 核心亮点 Four Pillars -->
+<section class="section-highlights">
+  <div class="resort-container">
+    <div class="pillar-grid">
+      <div class="pillar-card">
+        <div class="pillar-icon">👑</div>
+        <h3>私人管家服务</h3>
+        <p>24 小时一对一英国管家协会认证贴身礼宾服务，细致入微满足您的每项心愿。</p>
+      </div>
+      <div class="pillar-card">
+        <div class="pillar-icon">🌊</div>
+        <h3>悬崖无边际海景泳池</h3>
+        <p>建于天然海蚀悬崖之巅的恒温泳池，日落熔金时刻尽收眼底。</p>
+      </div>
+      <div class="pillar-card">
+        <div class="pillar-icon">🌿</div>
+        <h3>海盐精油疗愈水疗</h3>
+        <p>采用深海活泉水与法式定制芳疗体系，重塑身心内在平衡。</p>
+      </div>
+      <div class="pillar-card">
+        <div class="pillar-icon">⛵</div>
+        <h3>私人海岛帆船出海</h3>
+        <p>专属游艇船队随时启航，私享无人海岛香槟落日野餐。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 房型精选陈列 -->
+<section class="section-rooms">
+  <div class="resort-container">
+    <div class="section-header">
+      <span class="sub-heading">LUXURY COLLECTION</span>
+      <h2 class="main-heading">臻选套房与海景私邸</h2>
+      <p class="heading-desc">每间套房皆配备宽幅全景落地窗与私人亲水阳台，尽享海天交融的开阔意境</p>
+    </div>
+
+    <div class="rooms-grid">
+      <!-- 房型卡片 1 -->
+      <div class="room-card">
+        <div class="room-media">
+          <div class="room-badge">270° Oceanfront</div>
+          <div class="room-visual room-visual-1">
+            <div class="visual-art sea-villa"></div>
+          </div>
+        </div>
+        <div class="room-body">
+          <div class="room-meta">
+            <span>📐 180 {{theme.strings.roomsSection.sqm}}</span>
+            <span>👥 2-3 {{theme.strings.roomsSection.guests}}</span>
+            <span>🛏️ King Bed</span>
+          </div>
+          <h3 class="room-title">海景私享无边际泳池别墅 (Azure Infinity Villa)</h3>
+          <p class="room-desc">直面蔚蓝海平线，配备 15 米悬挑私家恒温泳池、全落日露台与专属香槟露天水疗私汤。</p>
+          <div class="room-footer">
+            <div class="room-price-box">
+              <span class="currency">¥</span>
+              <span class="amount">4,880</span>
+              <span class="unit">起 / 每晚</span>
+            </div>
+            <button class="btn btn-gold btn-sm" onclick="openBookingModal('海景私享无边际泳池别墅 (Azure Infinity Villa)', 4880)">
+              立即预订
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 房型卡片 2 -->
+      <div class="room-card">
+        <div class="room-media">
+          <div class="room-badge">Cliffside View</div>
+          <div class="room-visual room-visual-2">
+            <div class="visual-art cliff-suite"></div>
+          </div>
+        </div>
+        <div class="room-body">
+          <div class="room-meta">
+            <span>📐 135 ㎡</span>
+            <span>👥 2 位宾客</span>
+            <span>🛏️ King Bed</span>
+          </div>
+          <h3 class="room-title">悬崖天际全景私汤套房 (Cliffside Horizon Suite)</h3>
+          <p class="room-desc">依天然礁石海岸而建，悬空玻璃起居室与天然海盐热矿温泉泡池，私密雅致。</p>
+          <div class="room-footer">
+            <div class="room-price-box">
+              <span class="currency">¥</span>
+              <span class="amount">3,580</span>
+              <span class="unit">起 / 每晚</span>
+            </div>
+            <button class="btn btn-gold btn-sm" onclick="openBookingModal('悬崖天际全景私汤套房 (Cliffside Horizon Suite)', 3580)">
+              立即预订
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 房型卡片 3 -->
+      <div class="room-card">
+        <div class="room-media">
+          <div class="room-badge">Flagship Luxury</div>
+          <div class="room-visual room-visual-3">
+            <div class="visual-art pres-villa"></div>
+          </div>
+        </div>
+        <div class="room-body">
+          <div class="room-meta">
+            <span>📐 360 ㎡</span>
+            <span>👥 6-8 位宾客</span>
+            <span>🛏️ 3 King Beds</span>
+          </div>
+          <h3 class="room-title">蔚蓝海角总统沙滩私邸 (Grand Presidential Beachfront)</h3>
+          <p class="room-desc">三卧独栋私邸，专享独立私家白沙滩、私宴厅、驻邸管家与私人直升机停机坪礼遇。</p>
+          <div class="room-footer">
+            <div class="room-price-box">
+              <span class="currency">¥</span>
+              <span class="amount">12,800</span>
+              <span class="unit">起 / 每晚</span>
+            </div>
+            <button class="btn btn-gold btn-sm" onclick="openBookingModal('蔚蓝海角总统沙滩私邸 (Grand Presidential Beachfront)', 12800)">
+              立即预订
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="text-align: center; margin-top: 3.5rem;">
+      <a href="/{{locale}}/rooms" class="btn btn-outline btn-lg">
+        浏览全部 18 款奢华房型与私邸 &rarr;
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- 奢享体验：米其林与水疗 -->
+<section class="section-experience">
+  <div class="resort-container exp-container">
+    <div class="exp-text">
+      <span class="sub-heading">CULINARY & WELLNESS</span>
+      <h2>米其林星厨飨宴与沉浸水疗</h2>
+      <p>在海浪轻抚的悬崖餐位，品味每日凌晨空运而至的极品海胆与和牛；漫步至蔚蓝水疗殿堂，体验源自地中海古法的热石深海舒缓芳疗。</p>
+      <div class="exp-features">
+        <div class="exp-feat-item">
+          <strong>L'Azur 悬崖法餐厅</strong>
+          <span>米其林一星，全球臻选窖藏 3,000 款珍稀佳酿</span>
+        </div>
+        <div class="exp-feat-item">
+          <strong>Thalasso 水疗疗愈中心</strong>
+          <span>天然富矿深海活水，全套法国宝丽法芳疗护理</span>
+        </div>
+      </div>
+      <a href="/{{locale}}/about" class="btn btn-gold" style="margin-top: 2rem;">探索全方位度假体验</a>
+    </div>
+    <div class="exp-visual">
+      <div class="exp-graphic"></div>
+    </div>
+  </div>
+</section>
+
+{{/section}}

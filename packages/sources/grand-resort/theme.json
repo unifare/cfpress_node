@@ -1,0 +1,292 @@
+{
+  "name": "grand-resort",
+  "title": "悦澜奢华度假酒店 (Grand Azure Resort & Spa)",
+  "version": "1.0.0",
+  "author": "CFPress Luxury Collection",
+  "description": "顶级海滨度假、奢华私汤套房与定制管家服务的现代五星级度假酒店主题。沉浸式全海景房型陈列、快捷即时查房与多语言在线预订。",
+  "supports": [
+    "blocks",
+    "menus",
+    "widgets"
+  ],
+  "menuLocations": [
+    {
+      "id": "header",
+      "label": "Header Navigation"
+    },
+    {
+      "id": "footer",
+      "label": "Footer Navigation"
+    }
+  ],
+  "sidebars": [
+    {
+      "id": "sidebar",
+      "label": "Resort Sidebar"
+    },
+    {
+      "id": "footer",
+      "label": "Resort Footer"
+    }
+  ],
+  "templates": [
+    "index",
+    "home",
+    "archive-room",
+    "single-room",
+    "book",
+    "about",
+    "single",
+    "page",
+    "404"
+  ],
+  "parts": [
+    "layout",
+    "header",
+    "footer"
+  ],
+  "locales": [
+    "zh-CN",
+    "en"
+  ],
+  "routes": [
+    {
+      "path": "/",
+      "template": "home",
+      "title": "Grand Azure Resort & Spa",
+      "resolve": {
+        "table": "room"
+      },
+      "query": {
+        "as": "rooms",
+        "limit": 6
+      }
+    },
+    {
+      "path": "/rooms",
+      "template": "archive-room",
+      "title": "Suites & Villas",
+      "resolve": {
+        "table": "room"
+      },
+      "query": {
+        "as": "rooms"
+      }
+    },
+    {
+      "path": "/rooms/:slug",
+      "template": "single-room",
+      "title": "Suite Details",
+      "resolve": {
+        "table": "room",
+        "by": "slug"
+      }
+    },
+    {
+      "path": "/book",
+      "template": "book",
+      "title": "Book Your Stay"
+    },
+    {
+      "path": "/about",
+      "template": "about",
+      "title": "About The Resort"
+    }
+  ],
+  "tables": [
+    {
+      "name": "room",
+      "label": "Room & Suite",
+      "translatable": [
+        "name",
+        "bed_type",
+        "view_type",
+        "description"
+      ],
+      "fields": [
+        {
+          "key": "name",
+          "type": "text",
+          "label": "Room Name",
+          "required": true
+        },
+        {
+          "key": "price",
+          "type": "number",
+          "label": "Price / Night (CNY)",
+          "required": true
+        },
+        {
+          "key": "size_sqm",
+          "type": "number",
+          "label": "Area (sqm)"
+        },
+        {
+          "key": "max_guests",
+          "type": "number",
+          "label": "Max Guests"
+        },
+        {
+          "key": "bed_type",
+          "type": "text",
+          "label": "Bed Configuration"
+        },
+        {
+          "key": "view_type",
+          "type": "text",
+          "label": "View Orientation"
+        },
+        {
+          "key": "featured",
+          "type": "boolean",
+          "label": "Featured In Showcase"
+        },
+        {
+          "key": "description",
+          "type": "longtext",
+          "label": "Suite Description"
+        }
+      ]
+    },
+    {
+      "name": "booking",
+      "label": "Reservation",
+      "translatable": [
+        "booking_no",
+        "room_name",
+        "guest_name",
+        "guest_phone",
+        "guest_email",
+        "booking_status",
+        "notes"
+      ],
+      "fields": [
+        {
+          "key": "booking_no",
+          "type": "text",
+          "label": "Booking Reference",
+          "required": true
+        },
+        {
+          "key": "room_name",
+          "type": "text",
+          "label": "Reserved Suite",
+          "required": true
+        },
+        {
+          "key": "guest_name",
+          "type": "text",
+          "label": "Guest Name",
+          "required": true
+        },
+        {
+          "key": "guest_phone",
+          "type": "text",
+          "label": "Mobile Phone"
+        },
+        {
+          "key": "guest_email",
+          "type": "text",
+          "label": "Email Address"
+        },
+        {
+          "key": "check_in",
+          "type": "date",
+          "label": "Check-in Date"
+        },
+        {
+          "key": "check_out",
+          "type": "date",
+          "label": "Check-out Date"
+        },
+        {
+          "key": "nights",
+          "type": "number",
+          "label": "Total Nights"
+        },
+        {
+          "key": "total_amount",
+          "type": "number",
+          "label": "Total Amount"
+        },
+        {
+          "key": "booking_status",
+          "type": "text",
+          "label": "Booking Status"
+        },
+        {
+          "key": "notes",
+          "type": "longtext",
+          "label": "Special Requests & Notes"
+        }
+      ]
+    }
+  ],
+  "adminMenus": [
+    {
+      "id": "resort-rooms",
+      "label": "Suites & Rooms",
+      "label_key": "theme.grand-resort.menu.rooms",
+      "icon": "home",
+      "screen": "table-list",
+      "args": {
+        "table": "room"
+      },
+      "sortOrder": 10
+    },
+    {
+      "id": "resort-room-new",
+      "label": "Add Suite",
+      "label_key": "theme.grand-resort.menu.roomNew",
+      "icon": "plus",
+      "screen": "table-edit",
+      "args": {
+        "table": "room"
+      },
+      "sortOrder": 11
+    },
+    {
+      "id": "resort-bookings",
+      "label": "Reservations",
+      "label_key": "theme.grand-resort.menu.bookings",
+      "icon": "calendar",
+      "screen": "table-list",
+      "args": {
+        "table": "booking"
+      },
+      "sortOrder": 12
+    }
+  ],
+  "settings": [
+    {
+      "key": "hotel_brand",
+      "label": "Hotel Brand",
+      "type": "text",
+      "default": "悦澜奢华度假酒店 Grand Azure Resort"
+    },
+    {
+      "key": "concierge_phone",
+      "label": "Concierge Phone",
+      "type": "text",
+      "default": "+86 898 8888 6688"
+    },
+    {
+      "key": "concierge_email",
+      "label": "Concierge Email",
+      "type": "text",
+      "default": "concierge@grandazure.com"
+    },
+    {
+      "key": "check_in_policy",
+      "label": "Check-in Time",
+      "type": "text",
+      "default": "15:00"
+    },
+    {
+      "key": "check_out_policy",
+      "label": "Check-out Time",
+      "type": "text",
+      "default": "12:00"
+    }
+  ]
+}

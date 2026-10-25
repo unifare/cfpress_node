@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="{{locale}}">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{#if page.document_title}}{{page.document_title}}{{else}}{{page.title}}{{#if site.title}} · {{site.title}}{{/if}}{{/if}}</title>
+{{#if page.description}}<meta name="description" content="{{page.description}}">{{/if}}
+<meta name="robots" content="{{#if site.robots}}{{site.robots}}{{else}}index,follow{{/if}}">
+<meta name="generator" content="CFPress / {{theme.title}} {{theme.version}}">
+{{#if site.url}}<link rel="canonical" href="{{site.url}}{{page.path}}">{{/if}}
+{{! hreflang: same pattern as the default theme — every locale the site serves,
+    x-default on the site's default language. Entries are absolute URLs,
+    absolutized by the platform. }}
+{{#if site.url}}{{#each locales as l}}<link rel="alternate" hreflang="{{l.code}}" href="{{site.url}}/{{l.code}}">
+{{/each}}{{/if}}
+<meta property="og:type" content="website">
+<meta property="og:title" content="{{page.title}}">
+{{#if page.description}}<meta property="og:description" content="{{page.description}}">{{/if}}
+{{#if site.url}}<meta property="og:url" content="{{site.url}}{{page.path}}">{{/if}}
+<meta property="og:site_name" content="{{site.title}}">
+{{! Feed discovery, same as the default theme: this page language's feed. }}
+<link rel="alternate" type="application/rss+xml" title="{{site.title}}" href="/{{locale}}/feed.xml">
+{{@include "parts/styles"}}
+{{! Theme choice before first paint, so a dark reader never sees a white
+    frame. Saved choice wins, otherwise the OS preference. `colorScheme` keeps
+    native controls (scrollbars, form widgets) in step. }}
+<script>
+(function () {
+  try {
+    var saved = null;
+    try { saved = localStorage.getItem("showcase-theme"); } catch (e) {}
+    var dark = saved ? saved === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+    var root = document.documentElement;
+    root.dataset.theme = dark ? "dark" : "light";
+    root.style.colorScheme = dark ? "dark" : "light";
+  } catch (e) {}
+})();
+</script>
+{{{hook("head")}}}
+</head>
+<body>
+{{@section "content"}}
+{{! Theme toggle binding. Guarded: only the home header carries the button,
+    the fallback templates share this layout without one. Icon state is synced
+    on load (the head script above ran before the button existed). }}
+<script>
+(function () {
+  var btn = document.getElementById("themeBtn");
+  if (!btn) return;
+  function paint() {
+    // NOTE: no square brackets anywhere in here — not selectors, not even
+    // array indices. The template engine eats `[...]` groups inside inline
+    // scripts (`svgs[0]` arrives as `svgs`, `querySelector("[…]")` as
+    // `querySelector("")`); CSS selectors are unaffected. The two icons are
+    // the button's first and last element children, so they are addressed
+    // structurally instead.
+    var dark = document.documentElement.dataset.theme === "dark";
+    var moon = btn.firstElementChild;
+    var sun = btn.lastElementChild;
+    if (moon) moon.style.display = dark ? "none" : "";
+    if (sun) sun.style.display = dark ? "" : "none";
+  }
+  btn.addEventListener("click", function () {
+    var dark = document.documentElement.dataset.theme !== "dark";
+    document.documentElement.dataset.theme = dark ? "dark" : "light";
+    document.documentElement.style.colorScheme = dark ? "dark" : "light";
+    try { localStorage.setItem("showcase-theme", dark ? "dark" : "light"); } catch (e) {}
+    paint();
+  });
+  paint();
+})();
+</script>
+{{{hook("footer")}}}
+</body>
+</html>

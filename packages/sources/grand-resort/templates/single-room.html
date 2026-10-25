@@ -1,0 +1,65 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+
+<section class="room-detail-hero">
+  <div class="resort-container">
+    <a href="/{{locale}}/rooms" class="back-link">&larr; 返回所有房型</a>
+    <div class="detail-header">
+      <span class="sub-heading">SIGNATURE RESIDENCE</span>
+      <h1>海景私享无边际泳池别墅 (Azure Infinity Villa)</h1>
+      <div class="detail-specs">
+        <span>📐 面积: 180 平方米</span>
+        <span>👥 容量: 最多 3 位成人</span>
+        <span>🛏️ 床型: 特大双人床 2.0m x 2.0m</span>
+        <span>🌅 视野: 270° 蔚蓝海景</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="room-detail-body" style="padding: 3rem 0 6rem;">
+  <div class="resort-container room-detail-layout">
+    <div class="detail-main">
+      <div class="detail-visual-banner">
+        <div class="visual-art sea-villa" style="height: 420px; border-radius: var(--radius-lg);"></div>
+      </div>
+
+      <div class="detail-text-block">
+        <h3>套房设计理念与尊崇体验</h3>
+        <p>海景私享无边际泳池别墅坐落于度假村最静谧的海岬之巅，由国际知名建筑大师倾心雕琢。别墅内部将温润的大理石质感、天然柚木与极简全景无框玻璃窗天衣无缝地融为一体，打破室内与自然的边界。</p>
+        <p>清晨，第一缕晨曦越过海平面唤醒您；傍晚，您可在私人 15 米无边际泳池中畅游，或在临海露台品味侍酒师备好的冰镇香槟。</p>
+
+        <h3>客房专属礼遇与设施</h3>
+        <div class="amenities-grid">
+          <div class="amenity-item"><span>🍸</span> 每日免费首轮私藏 Mini Bar 与精选香槟</div>
+          <div class="amenity-item"><span>🛁</span> 意大利定制浸泡式深海大理石浴缸</div>
+          <div class="amenity-item"><span>🎵</span> 丹麦顶级 Bang & Olufsen 环绕音响系统</div>
+          <div class="amenity-item"><span>☕</span> 瑞士顶级胶囊咖啡机与手工高山红茶礼盒</div>
+          <div class="amenity-item"><span>🧴</span> 法国皇室香氛品牌 Diptyque 全套奢宠洗护备品</div>
+          <div class="amenity-item"><span>👔</span> 每日 2 件衣物免费熨烫与夜床定制香薰</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="detail-sidebar">
+      <div class="booking-widget-card">
+        <div class="widget-price">
+          <span class="currency">¥</span>
+          <span class="amount">4,880</span>
+          <span class="unit">起 / 每晚</span>
+        </div>
+        <p class="widget-policy">含每日双人黑松露海景香槟早餐及机场特斯拉专车接送</p>
+        <hr style="border: none; border-top: 1px solid var(--border); margin: 1.5rem 0;">
+        <button class="btn btn-gold btn-block btn-lg" onclick="openBookingModal('海景私享无边际泳池别墅', 4880)">
+          即刻预订此房型
+        </button>
+        <div class="concierge-tip">
+          <p>📞 专属预订礼宾热线: <strong>+86 898 8888 6688</strong></p>
+          <p>专属管家即刻为您安排预留与定制服务</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+{{/section}}

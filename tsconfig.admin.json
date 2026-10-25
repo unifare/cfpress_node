@@ -1,0 +1,29 @@
+// Type checking for the admin SPA — the one tree that is JavaScript by design.
+//
+// `public/admin` is served straight from the assets binding: no bundler, no
+// build step, no `.ts`. That is a deployment contract (a build step would have
+// to run before every deploy and would change what `wrangler dev` serves), so
+// the answer is not "convert it", it is `checkJs`.
+//
+// Separate from the root `tsconfig.json` on purpose: that project is `strict`
+// and covers `src/` only. Turning `checkJs` on there would sweep 11k lines of
+// DOM code into the strict project and drown the real signal.
+//
+// `strict: false` is deliberate for now. The first job is to catch "this
+// property does not exist" — the class of defect that only surfaces in a
+// browser, on the one code path a test happened to render. Null-safety is a
+// later ratchet, once the error budget is at zero.
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "Bundler",
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": false,
+    "skipLibCheck": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"]
+  },
+  "include": ["public/admin/**/*.js", "types/admin.d.ts"]
+}

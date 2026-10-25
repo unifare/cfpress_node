@@ -1,0 +1,60 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+
+<section class="page-banner">
+  <div class="resort-container">
+    <span class="sub-heading">SECURE RESERVATION</span>
+    <h1>在线预订您的度假之旅</h1>
+    <p>尊享官方专属最优惠房价保证、灵活退改政策与抵达日奢华香槟迎宾礼。</p>
+  </div>
+</section>
+
+<section style="padding: 4rem 0 6rem;">
+  <div class="resort-container" style="max-width: 800px;">
+    <div class="card" style="padding: 2.5rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);">
+      <h3 style="margin-top: 0; color: var(--gold); font-size: 1.5rem;">预订信息填写</h3>
+      <form onsubmit="handleBookingSubmit(event)">
+        <div class="form-group">
+          <label>意向预订房型</label>
+          <select id="bookRoomSelect" required>
+            <option value="海景私享无边际泳池别墅">海景私享无边际泳池别墅 (¥4,880/晚)</option>
+            <option value="悬崖天际全景私汤套房">悬崖天际全景私汤套房 (¥3,580/晚)</option>
+            <option value="蔚蓝海角总统沙滩私邸">蔚蓝海角总统沙滩私邸 (¥12,800/晚)</option>
+            <option value="热带隐逸水景公馆">热带隐逸水景公馆 (¥2,680/晚)</option>
+          </select>
+        </div>
+        <div class="form-row-2">
+          <div class="form-group">
+            <label>预计入住日期</label>
+            <input type="date" required>
+          </div>
+          <div class="form-group">
+            <label>预计离店日期</label>
+            <input type="date" required>
+          </div>
+        </div>
+        <div class="form-row-2">
+          <div class="form-group">
+            <label>主入住宾客姓名</label>
+            <input type="text" placeholder="王先生 / Ms. Li" required>
+          </div>
+          <div class="form-group">
+            <label>联系手机号码</label>
+            <input type="tel" placeholder="+86 13800000000" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>电子邮箱</label>
+          <input type="email" placeholder="guest@domain.com">
+        </div>
+        <div class="form-group">
+          <label>特殊偏好与要求</label>
+          <textarea rows="3" placeholder="例如：蜜月布置、无烟房、吸烟区、高楼层、延迟退房等..."></textarea>
+        </div>
+        <button type="submit" class="btn btn-gold btn-block btn-lg" style="margin-top: 1rem;">提交预订请求</button>
+      </form>
+    </div>
+  </div>
+</section>
+
+{{/section}}

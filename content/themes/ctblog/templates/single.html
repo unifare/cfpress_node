@@ -1,0 +1,68 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+
+<div class="progress-rail" hidden><div class="progress-bar" data-progress></div></div>
+
+<article data-article data-od-id="article">
+  <header class="section" style="padding-bottom:0">
+    <div class="wrap">
+      <div class="article-head">
+        <p class="eyebrow">{{#if post.meta.category}}{{post.meta.category}} · {{/if}}{{#if post.date_display}}{{post.date_display}}{{else}}{{date(post.created_at)}}{{/if}}</p>
+        <h1>{{post.title}}</h1>
+        {{#if post.excerpt}}<p class="lede">{{post.excerpt}}</p>{{/if}}
+        <div class="article-meta">
+          <span>{{default(theme.strings.footer.author, "手记作者")}}</span>
+          <span class="dot"></span>
+          <span>{{#if post.date_display}}{{post.date_display}}{{else}}{{date(post.created_at)}}{{/if}}</span>
+          {{#if post.reading_time}}
+            <span class="dot"></span>
+            <span>{{post.reading_time}}</span>
+          {{/if}}
+          {{#if post.meta.category}}
+            <span class="dot"></span>
+            <a href="/{{locale}}/tags" class="tag">#{{post.meta.category}}</a>
+          {{/if}}
+          {{#if post.meta.tags}}
+            <span class="dot"></span>
+            <a href="/{{locale}}/tags" class="tag">#{{post.meta.tags}}</a>
+          {{/if}}
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="section" style="padding-top:34px">
+    <div class="wrap article-grid">
+      <div class="prose" data-od-id="article-body">
+        {{#if post.html}}
+          {{{post.html}}}
+        {{/if}}
+      </div>
+
+      <aside class="toc" data-toc aria-label="{{default(theme.strings.article.toc, "文章目录")}}">
+        <div class="toc-title">{{default(theme.strings.article.toc, "目录")}}</div>
+        <ol></ol>
+      </aside>
+    </div>
+  </div>
+
+  <footer class="section" style="padding-top:0">
+    <div class="wrap">
+      <hr class="rule" style="margin-bottom:28px">
+      <div style="display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;align-items:center">
+        <div>
+          <p class="eyebrow" style="margin-bottom:8px">{{default(theme.strings.article.prevNext, "上一篇 / 下一篇")}}</p>
+          <div style="display:flex;gap:24px;flex-wrap:wrap">
+            <a href="/{{locale}}/archive" style="font-family:var(--font-serif);font-size:16px">← {{default(theme.strings.home.allArchive, "全部归档")}}</a>
+          </div>
+        </div>
+        <a class="btn" href="/{{locale}}/feed.xml">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 12a7 7 0 0 1 7 7M5 5a14 14 0 0 1 14 14"/><circle cx="5" cy="19" r="1.2" fill="currentColor" stroke="none"/></svg>
+          {{default(theme.strings.article.subscribe, "订阅更新")}}
+        </a>
+      </div>
+    </div>
+  </footer>
+</article>
+
+{{/section}}

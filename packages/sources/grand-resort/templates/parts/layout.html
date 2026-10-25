@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="{{locale}}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{page.document_title}}</title>
+  {{#if site.description}}<meta name="description" content="{{site.description}}">{{/if}}
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400&family=Montserrat:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/themes/grand-resort/assets/style.css">
+</head>
+<body class="resort-body">
+  {{@include "parts/header"}}
+
+  <main class="resort-main">
+    {{@section "content"}}
+  </main>
+
+  {{@include "parts/footer"}}
+
+  <!-- 奢华在线预订弹窗 -->
+  <div id="bookingModal" class="resort-modal" style="display: none;">
+    <div class="modal-backdrop" onclick="closeBookingModal()"></div>
+    <div class="modal-card">
+      <button class="modal-close" onclick="closeBookingModal()">&times;</button>
+      <div class="modal-header">
+        <span class="modal-eyebrow">GRAND AZURE RESERVATION</span>
+        <h3 id="modalRoomTitle">确认您的私享套房预订</h3>
+        <p class="modal-room-price" id="modalRoomPrice"></p>
+      </div>
+      <form id="bookingForm" onsubmit="handleBookingSubmit(event)">
+        <input type="hidden" id="bookRoomName" name="room_name" value="">
+        <input type="hidden" id="bookPrice" name="price" value="2880">
+        <div class="form-row-2">
+          <div class="form-group">
+            <label>入住日期 Check-in</label>
+            <input type="date" id="bookCheckIn" name="check_in" required>
+          </div>
+          <div class="form-group">
+            <label>离店日期 Check-out</label>
+            <input type="date" id="bookCheckOut" name="check_out" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>住客姓名 Guest Name</label>
+          <input type="text" id="bookGuestName" name="guest_name" placeholder="王先生 / Mr. Smith" required>
+        </div>
+        <div class="form-row-2">
+          <div class="form-group">
+            <label>联系电话 Phone</label>
+            <input type="tel" id="bookPhone" name="guest_phone" placeholder="+86 138 0000 0000" required>
+          </div>
+          <div class="form-group">
+            <label>电子邮箱 Email</label>
+            <input type="email" id="bookEmail" name="guest_email" placeholder="guest@example.com">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>入住特殊偏好 Special Requests</label>
+          <textarea id="bookNotes" name="notes" rows="2" placeholder="机场特斯拉专车接送、高楼层海景房、香槟冰镇备品等..."></textarea>
+        </div>
+        <div class="modal-summary">
+          <span>预计总房费 Total Estimate:</span>
+          <strong id="modalTotalPrice" style="color: var(--gold); font-size: 1.3rem;">¥2,880</strong>
+        </div>
+        <button type="submit" class="btn btn-gold btn-block" style="margin-top: 1rem;">
+          确认提交预订 (Confirm Reservation)
+        </button>
+      </form>
+      <div id="bookingSuccessBox" class="booking-success-box" style="display: none;">
+        <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">✨</div>
+        <h4>预订申请已受理！专属礼宾专员将在 15 分钟内与您电话确认。</h4>
+        <p id="bookingRefCode" style="font-family: monospace; font-size: 1.1rem; color: var(--gold); font-weight: bold;"></p>
+        <button class="btn btn-outline" onclick="closeBookingModal()" style="margin-top: 1rem;">关闭窗口</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/themes/grand-resort/assets/resort.js"></script>
+</body>
+</html>

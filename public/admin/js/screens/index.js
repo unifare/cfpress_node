@@ -35,6 +35,7 @@ import backup from "./backup.js";
 import formsManager from "./forms-manager.js";
 import comments from "./comments.js";
 import members from "./members.js";
+import { tools } from "./tools.js";
 
 export const SCREENS = {
   dashboard,
@@ -58,6 +59,7 @@ export const SCREENS = {
   seo,
   urls,
   settings,
+  tools,
   features,
   backup,
   "api-keys": apiKeys,

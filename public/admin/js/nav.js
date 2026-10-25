@@ -74,16 +74,10 @@ export function baseGroups() {
 
   return [
     {
-      id: "general",
-      label: t("core.nav.general", "General"),
-      items: [
-        { key: "dashboard", title: t("core.nav.dashboard", "Dashboard"), icon: "layout-dashboard", active: core("dashboard") },
-      ],
-    },
-    {
       id: "content",
       label: t("core.nav.content", "Content"),
       items: [
+        { key: "dashboard", title: t("core.nav.dashboard", "Dashboard"), icon: "layout-dashboard", active: core("dashboard") },
         { key: "posts", title: t("core.nav.posts", "Posts"), icon: "file-text", active: core("posts") },
         { key: "pages", title: t("core.nav.pages", "Pages"), icon: "files", active: core("pages") },
         { key: "comments", title: t("core.nav.comments", "Comments"), icon: "message-square", active: core("comments") },
@@ -92,9 +86,6 @@ export function baseGroups() {
         ...cptItems,
       ],
     },
-    ...(themeItems.length
-      ? [{ id: "from-theme", label: t("core.nav.fromTheme", "From theme"), items: themeItems }]
-      : []),
     {
       id: "appearance",
       label: t("core.nav.appearance", "Appearance"),
@@ -102,6 +93,7 @@ export function baseGroups() {
         { key: "appearance", title: t("core.nav.themes", "Themes"), icon: "palette", active: core("appearance") },
         { key: "menus", title: t("core.nav.menus", "Menus"), icon: "menu", active: core("menus") },
         { key: "widgets", title: t("core.nav.widgets", "Widgets"), icon: "package", active: core("widgets") },
+        ...themeItems,
       ],
     },
     {
@@ -116,8 +108,8 @@ export function baseGroups() {
       id: "system",
       label: t("core.nav.system", "System"),
       items: [
-        { key: "languages", title: t("core.nav.languages", "Languages"), icon: "languages", active: core("languages") },
         { key: "sites", title: t("core.nav.sites", "Sites"), icon: "landmark", active: core("sites") },
+        { key: "languages", title: t("core.nav.languages", "Languages"), icon: "languages", active: core("languages") },
         { key: "users", title: t("core.nav.users", "Users"), icon: "users", active: core("users") },
         { key: "members", title: t("core.nav.members", "Members"), icon: "user-check", active: core("members") },
       ],
@@ -126,13 +118,18 @@ export function baseGroups() {
       id: "tools",
       label: t("core.nav.tools", "Tools"),
       items: [
-        { key: "seo", title: t("core.nav.seo", "SEO"), icon: "chart", active: core("seo") },
-        { key: "urls", title: t("core.nav.urls", "URL Manager"), icon: "route", active: core("urls") },
-        { key: "settings", title: t("core.nav.settings", "Settings"), icon: "settings", active: core("settings") },
-        { key: "features", title: t("core.nav.features", "Features"), icon: "sliders-horizontal", active: core("features") },
-        { key: "backup", title: t("core.nav.backup", "Backup & Restore"), icon: "history", active: core("backup") },
-        { key: "api-keys", title: t("core.nav.apiKeys", "AI & API Keys"), icon: "sparkles", active: core("api-keys") },
-        { key: "activity", title: t("core.nav.activity", "Activity"), icon: "activity", active: core("activity") },
+        {
+          key: "settings",
+          title: t("core.nav.settingsCenter", "Settings"),
+          icon: "settings",
+          active: core("settings") || core("seo") || core("urls") || core("features"),
+        },
+        {
+          key: "tools",
+          title: t("core.nav.toolsHub", "Tools Hub"),
+          icon: "sliders-horizontal",
+          active: core("tools") || core("backup") || core("api-keys") || core("activity") || core("menu-config"),
+        },
       ],
     },
   ];
@@ -260,11 +257,19 @@ export function sidebar() {
     .map((s) => `<button class="menu-item" data-switch-site="${attr(s.id)}">${icon(s.id === state.site ? "check" : "globe")}<span>${esc(s.name)}</span></button>`)
     .join("");
 
-  const groups = navGroups().map((g) => `
-    <div class="nav-group">
-      <div class="nav-group-label">${esc(g.label)}</div>
-      ${g.items.map(navItem).join("")}
-    </div>`).join("");
+  const groups = navGroups().map((g) => {
+    const isExpanded = state.openGroups.has(g.id) || g.items.some((it) => it.active);
+    return `
+    <div class="nav-group${isExpanded ? "" : " group-collapsed"}">
+      <button type="button" class="nav-group-label nav-group-toggle" onclick="toggleGroup('${attr(g.id)}')">
+        <span>${esc(g.label)}</span>
+        <span class="group-chevron">${icon("chevron-down")}</span>
+      </button>
+      <div class="nav-group-items">
+        ${g.items.map(navItem).join("")}
+      </div>
+    </div>`;
+  }).join("");
 
   return `<aside class="sidebar">
     <div class="sidebar-header">
@@ -273,7 +278,7 @@ export function sidebar() {
           <span class="team-logo">${icon("layers")}</span>
           <span class="team-meta">
             <span class="team-name">${esc(site?.name || "CFPress")}</span>
-            <span class="team-plan">${esc(site?.host || site?.path_prefix || "Cloudflare-native CMS")}</span>
+            <span class="team-plan">${esc(site?.host || site?.path_prefix || "Node.js + Drizzle CMS")}</span>
           </span>
           <span class="nav-chevron">${icon("chevron-down")}</span>
         </button>
@@ -287,8 +292,11 @@ export function sidebar() {
     </div>
     <div class="sidebar-content">${groups}</div>
     <div class="sidebar-footer">
-      <button class="nav-item" data-nav="settings" title="${attr(t("core.nav.settings", "Settings"))}">
-        <span class="nav-icon">${icon("settings")}</span><span class="sidebar-text">${esc(t("core.nav.settings", "Settings"))}</span>
+      <button class="nav-item${state.page === "settings" ? " active" : ""}" data-nav="settings" title="${attr(t("core.nav.settingsCenter", "Settings"))}">
+        <span class="nav-icon">${icon("settings")}</span><span class="sidebar-text">${esc(t("core.nav.settingsCenter", "Settings"))}</span>
+      </button>
+      <button class="nav-item${state.page === "tools" ? " active" : ""}" data-nav="tools" title="${attr(t("core.nav.toolsHub", "Tools Hub"))}">
+        <span class="nav-icon">${icon("sliders-horizontal")}</span><span class="sidebar-text">${esc(t("core.nav.toolsHub", "Tools Hub"))}</span>
       </button>
     </div>
   </aside>`;

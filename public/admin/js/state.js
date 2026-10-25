@@ -58,7 +58,7 @@ export const state = {
   // renderer's own `CORE_BLOCKS` set. Never re-listed in the SPA.
   blockTypes: [],
   sidebarCollapsed: localStorage.getItem("cfpress.admin.sidebar") === "1",
-  openGroups: new Set(JSON.parse(localStorage.getItem("cfpress.admin.groups") || "[]")),
+  openGroups: new Set(JSON.parse(localStorage.getItem("cfpress.admin.groups") || '["content","appearance","extensions","system","tools","from-theme"]')),
 };
 
 /**

@@ -304,15 +304,15 @@ async function testApplyMenuCustom() {
     state.hiddenMenus = new Set(); state.menuCustom = { items: {}, groups: {} };
 
     const base = nav.baseGroups();
-    check("base group ids", base.map((g) => g.id), ["general", "content", "appearance", "extensions", "system", "tools"]);
+    check("base group ids", base.map((g) => g.id), ["content", "appearance", "extensions", "system", "tools"]);
 
     const custom = {
       items: {
         posts: { label: { en: "Blog", "zh-CN": "博客" } },
         dashboard: { order: 0 },
         widgets: { group: "content", hidden: true },
-        urls: { hidden: true },
-        activity: { group: "nope" }, // target group does not exist -> ignored, stays put
+        settings: { hidden: true },
+        tools: { group: "nope" }, // target group does not exist -> ignored, stays put
       },
       groups: { system: { label: { en: "System X", "zh-CN": "系统X" }, order: -1 } },
     };
@@ -322,14 +322,13 @@ async function testApplyMenuCustom() {
     check("group order: system (order -1) first", en[0].id, "system");
     check("group label override en", en[0].label, "System X");
     check("group label override zh-CN", zh[0].label, "系统X");
-    check("unordered groups keep built-in relative order", en.slice(1).map((g) => g.id), ["general", "content", "appearance", "extensions", "tools"]);
-
-    const gen = en.find((g) => g.id === "general");
-    check("general has dashboard", gen.items.map((it) => it.key), ["dashboard"]);
-    const tools = en.find((g) => g.id === "tools");
-    check("move to nonexistent group dropped (activity stays in tools)", tools.items.some((it) => it.key === "activity"), true);
+    check("unordered groups keep built-in relative order", en.slice(1).map((g) => g.id), ["content", "appearance", "extensions", "tools"]);
 
     const content = en.find((g) => g.id === "content");
+    check("content has dashboard first", content.items[0].key, "dashboard");
+    const tools = en.find((g) => g.id === "tools");
+    check("move to nonexistent group dropped (tools stays in tools)", tools.items.some((it) => it.key === "tools"), true);
+
     check("cross-group move: widgets now in content", content.items.some((it) => it.key === "widgets"), true);
     const appearance = en.find((g) => g.id === "appearance");
     check("cross-group move: widgets left appearance", !appearance.items.some((it) => it.key === "widgets"), true);
@@ -349,9 +348,9 @@ async function testApplyMenuCustom() {
     }
     const visible = nav.navGroups(false).flatMap((g) => g.items.map((it) => it.key));
     const all = nav.navGroups(true).flatMap((g) => g.items.map((it) => it.key));
-    check("navGroups: siteHidden item filtered from the sidebar", !visible.includes("widgets") && !visible.includes("urls"), true);
+    check("navGroups: siteHidden item filtered from the sidebar", !visible.includes("widgets") && !visible.includes("settings"), true);
     check("navGroups: dashboard always visible", visible.includes("dashboard"), true);
-    check("navGroups(true): editor sees everything", all.includes("widgets") && all.includes("urls"), true);
+    check("navGroups(true): editor sees everything", all.includes("widgets") && all.includes("settings"), true);
   } finally {
     // Verify the cleanup (AGENTS.md false-green #5), but only *this* run's own
     // failure counts: a Windows file lock is environmental, and treating it as a

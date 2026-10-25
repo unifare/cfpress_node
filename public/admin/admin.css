@@ -1796,8 +1796,35 @@ svg.cf-icon,
   opacity: 1;
   color: var(--primary);
 }
-.hub-embedded > .top {
+.hub-embedded > .top,
+.hub-embedded > .breadcrumb {
   display: none;
+}
+
+.panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 1rem;
+  margin-bottom: 1.25rem;
+  border-bottom: 1px solid var(--border);
+}
+.panel-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--foreground);
+  line-height: 1.35;
+}
+.panel-desc {
+  font-size: 0.8125rem;
+  color: var(--muted-foreground);
+  margin-top: 0.25rem;
+  line-height: 1.45;
+}
+.panel-body {
+  display: flex;
+  flex-direction: column;
 }
 
 /* Settings Center two-column layout */
@@ -1858,7 +1885,8 @@ svg.cf-icon,
   gap: 1.25rem;
   min-width: 0;
 }
-.settings-embedded > .top {
+.settings-embedded > .top,
+.settings-embedded > .breadcrumb {
   display: none;
 }
 

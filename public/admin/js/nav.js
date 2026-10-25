@@ -291,14 +291,6 @@ export function sidebar() {
       </div>
     </div>
     <div class="sidebar-content">${groups}</div>
-    <div class="sidebar-footer">
-      <button class="nav-item${state.page === "settings" ? " active" : ""}" data-nav="settings" title="${attr(t("core.nav.settingsCenter", "Settings"))}">
-        <span class="nav-icon">${icon("settings")}</span><span class="sidebar-text">${esc(t("core.nav.settingsCenter", "Settings"))}</span>
-      </button>
-      <button class="nav-item${state.page === "tools" ? " active" : ""}" data-nav="tools" title="${attr(t("core.nav.toolsHub", "Tools Hub"))}">
-        <span class="nav-icon">${icon("sliders-horizontal")}</span><span class="sidebar-text">${esc(t("core.nav.toolsHub", "Tools Hub"))}</span>
-      </button>
-    </div>
   </aside>`;
 }
 

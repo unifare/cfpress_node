@@ -2,6 +2,7 @@ import { Env, SessionUser } from "../shared/types";
 import { cookieValue, hashPassword, passwordIterations, randomId, verifyPassword } from "../shared/crypto";
 import { activity } from "../shared/repo";
 import { SITE_ROLES, SUPERADMIN_ROLE } from "./permissions";
+import { doAction } from "./hooks";
 
 /**
  * The admin session cookie.
@@ -87,6 +88,7 @@ export async function login(env: Env, username: string, password: string, cookie
   ).bind(username).first<any>();
 
   if (!user || user.status !== "active" || !(await verifyPassword(password, user.password_hash))) {
+    doAction("user:loginFailed", { env }, { username, time: new Date().toISOString() }).catch(() => {});
     return Response.json({ error: "Invalid credentials" }, { status: 401 });
   }
 
@@ -95,6 +97,13 @@ export async function login(env: Env, username: string, password: string, cookie
   await env.DB.prepare(
     "INSERT INTO admin_sessions (id, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)"
   ).bind(sessionId, user.id, expires, Math.floor(Date.now() / 1000)).run();
+
+  doAction("user:login", { env, user: { id: user.id, username: user.username, role: user.role } }, {
+    userId: user.id,
+    username: user.username,
+    role: user.role,
+    time: new Date().toISOString(),
+  }).catch(() => {});
 
   return new Response(JSON.stringify({ ok: true, user: {
     id: user.id, username: user.username, email: user.email, role: user.role, status: user.status
@@ -108,7 +117,10 @@ export async function login(env: Env, username: string, password: string, cookie
 
 export async function logout(env: Env, request: Request, cookiePath = "/admin"): Promise<Response> {
   const sid = cookieValue(request, SESSION_COOKIE);
-  if (sid) await env.DB.prepare("DELETE FROM admin_sessions WHERE id = ?").bind(sid).run();
+  if (sid) {
+    await env.DB.prepare("DELETE FROM admin_sessions WHERE id = ?").bind(sid).run();
+    doAction("user:logout", { env }, { sessionId: sid, time: new Date().toISOString() }).catch(() => {});
+  }
   return new Response(JSON.stringify({ ok: true }), {
     headers: {
       "Content-Type": "application/json",

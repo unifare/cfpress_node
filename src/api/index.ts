@@ -17,6 +17,9 @@ import {
   writePostMeta,
 } from "./content";
 import { dispatchBackupAdminRoutes, dispatchExtensionAdminRoutes, dispatchThemeTableAdminRoutes } from "./extensions";
+import { dispatchHooksAdminRoutes } from "./hooks";
+import { dispatchNotifyAdminRoutes } from "./notify";
+import { NotificationService } from "../platform/notification";
 import { dispatchMediaAdminRoutes } from "./media";
 import { dispatchI18nAdminRoutes, dispatchSettingsAdminRoutes } from "./settings";
 import { dispatchAdminMenuCustomRoutes, dispatchNavAndWidgetRoutes } from "./widgets";
@@ -152,6 +155,7 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     return handleFrontApi(env, request, DEFAULT_SITE_ID, url.pathname);
   }
   await bootstrapAdmin(env);
+  NotificationService.boot();
   const path = url.pathname.replace(/^\/api\/v1\/?/, "");
   const method = request.method;
 
@@ -191,7 +195,7 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
   }
   if (path === "media" && method === "POST" && !(await requirePermission(env, user, "media.write", siteId))) return ok({ error: "Forbidden" }, 403);
 
-  if (method === "GET" && /^(comments|members|posts|pages|content\/|search|media|settings|features|dashboard|stats|taxonomies|terms|tables|widgets|menus|menu_items|redirects|rewrites|locales|theme\/|theme-tables|backup|i18n\/(locales|overrides|translations|messages|ui-locale))/.test(path)) {
+  if (method === "GET" && /^(comments|members|posts|pages|content\/|search|media|settings|features|dashboard|stats|taxonomies|terms|tables|widgets|menus|menu_items|redirects|rewrites|locales|theme\/|theme-tables|backup|i18n\/(locales|overrides|translations|messages|ui-locale)|hooks|notify)/.test(path)) {
     if (!(await requireSiteAccess(env, user, siteId))) return ok({ error: "Forbidden" }, 403);
   }
 
@@ -234,6 +238,12 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
 
   const resExt = await dispatchExtensionAdminRoutes(env, request, user, siteId, path, method, url);
   if (resExt) return resExt;
+
+  const resHooks = await dispatchHooksAdminRoutes(env, request, user, siteId, path, method, url);
+  if (resHooks) return resHooks;
+
+  const resNotify = await dispatchNotifyAdminRoutes(env, request, user, siteId, path, method, url);
+  if (resNotify) return resNotify;
 
   const resComments = await dispatchCommentsAndMemberRoutes(env, request, user, siteId, path, method, url);
   if (resComments) return resComments;

@@ -15,6 +15,7 @@ import { randomId } from "../shared/crypto";
 import { bumpContentCache } from "../shared/cache";
 import { getSetting } from "./settings";
 import { MemberUser } from "./members";
+import { doAction } from "./hooks";
 
 export interface CommentRow {
   id: string;
@@ -212,6 +213,19 @@ export async function createComment(
   if (initialStatus === "approved") {
     await bumpContentCache(env, siteId);
   }
+
+  try {
+    await doAction("comment:beforeCreate", { env, siteId }, {
+      id: commentId,
+      postId: post.id,
+      postSlug: post.slug,
+      author: authorName,
+      authorEmail: authorEmail || "",
+      content,
+      status: initialStatus,
+      siteId,
+    });
+  } catch {}
 
   const successMsg =
     initialStatus === "approved"

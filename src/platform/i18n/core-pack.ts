@@ -1181,6 +1181,24 @@ const EN: Pack = {
   "core.settings.platformAdminPathHint": "Must start with / (e.g. /admin or /console). Moving the prefix hides the old path with 404.",
   "core.settings.platformMaxZip": "Max extension upload size (KB)",
   "core.settings.platformMaxZipHint": "Maximum binary asset size allowed when installing themes or plugins.",
+
+  // -- Notifications & Hook Inspector ----------------------------------------
+  "core.nav.notifications": "Notifications",
+  "core.nav.hookInspector": "Hook Inspector",
+  "core.action.viewAllNotifications": "View All Notifications",
+  "core.notify.title": "Notification Center",
+  "core.notify.sub": "Configure notification rules, multi-channel dispatchers, in-app inbox and delivery queue.",
+  "core.notify.restoreDefaults": "Restore Defaults",
+  "core.notify.newRule": "New Rule",
+  "core.notify.tabRules": "Rules Engine",
+  "core.notify.tabChannels": "Channels Matrix",
+  "core.notify.tabInbox": "In-App Inbox",
+  "core.notify.tabLogs": "Delivery Logs",
+  "core.notify.confirmRestore": "Restore built-in default notification rules?",
+  "core.notify.restored": "Default notification rules restored",
+  "core.hooks.title": "Hook Inspector & Tester",
+  "core.hooks.sub": "Inspect system lifecycle hooks, filter pipelines, plugin execution order, and trigger manual test dispatches.",
+  "core.action.clearLogs": "Clear Logs",
 };
 
 const ZH_CN: Pack = {
@@ -2317,6 +2335,24 @@ const ZH_CN: Pack = {
   "core.settings.platformAdminPathHint": "必须以 / 开头（如 /admin 或 /console）。修改后原后台路径将直接返回 404 隐身。",
   "core.settings.platformMaxZip": "扩展包最大二进制文件限制 (KB)",
   "core.settings.platformMaxZipHint": "安装主题或插件 ZIP 包时允许的单个文件最大体积。",
+
+  // -- Notifications & Hook Inspector ----------------------------------------
+  "core.nav.notifications": "通知系统",
+  "core.nav.hookInspector": "Hook 检查与测试器",
+  "core.action.viewAllNotifications": "查看所有通知",
+  "core.notify.title": "通知系统",
+  "core.notify.sub": "配置事件通知规则、多渠道分发矩阵（邮箱、飞书、Telegram、Webhook）、站内信与投递队列。",
+  "core.notify.restoreDefaults": "恢复内置规则",
+  "core.notify.newRule": "新建规则",
+  "core.notify.tabRules": "通知规则",
+  "core.notify.tabChannels": "渠道配置",
+  "core.notify.tabInbox": "站内中心",
+  "core.notify.tabLogs": "投递日志",
+  "core.notify.confirmRestore": "确认恢复系统内置默认通知规则？",
+  "core.notify.restored": "系统内置默认通知规则已恢复",
+  "core.hooks.title": "Hook 检查与测试器",
+  "core.hooks.sub": "实时检查系统生命周期 Action/Filter 钩子、插件调用链顺序，支持一键模拟激发与耗时诊断。",
+  "core.action.clearLogs": "清空日志",
 };
 
 /** Bundled packs, keyed by the exact locale code they translate. */

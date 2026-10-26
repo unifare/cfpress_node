@@ -25,6 +25,7 @@ import { listSites } from "../platform/sites";
 import { getSetting } from "../platform/settings";
 import { requestSiteId } from "./core";
 import { requirePermission } from "../platform/permissions";
+import { doAction } from "../platform/hooks";
 import { jsonBody } from "../shared/repo";
 import { SessionUser } from "../shared/types";
 import { requireSiteAccess } from "./core";
@@ -160,6 +161,9 @@ export async function mediaUpload(env: Env, userId: string, request: Request, si
     "INSERT INTO media_files (id, site_id, object_key, filename, mime_type, size, alt_text, title, uploaded_by, created_at, storage, remote_url, remote_delete_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
   ).bind(id, siteId, key, file.name, file.type || "application/octet-stream", file.size, String(form.get("alt") ?? ""), String(form.get("title") ?? file.name), userId, now(), provider, remoteUrl, remoteDeleteUrl).run();
   await activity(env, userId, "upload", "media", id, { filename: file.name, size: file.size, siteId, storage: provider });
+  try {
+    await doAction("media:afterUpload", { env, siteId }, { id, filename: file.name, size: file.size, mimeType: file.type || "application/octet-stream", url: `/media/${encodeURIComponent(key)}`, siteId });
+  } catch {}
   return ok({ id, url: `/media/${encodeURIComponent(key)}`, site: siteId }, 201);
 }
 
@@ -224,6 +228,9 @@ export async function mediaUpdate(env: Env, userId: string, id: string, body: an
 export async function mediaDelete(env: Env, userId: string, id: string, siteId: string) {
   const found = await mediaRowForWrite(env, id, siteId, userId);
   if ("error" in found) return ok({ error: found.error }, found.error === "not_found" ? 404 : 403);
+  try {
+    await doAction("media:beforeDelete", { env, siteId }, { id, siteId });
+  } catch {}
   const key = String(found.row.object_key ?? "");
   const storage = String(found.row.storage ?? "r2");
   if (storage !== "r2" && isMediaStorageProvider(storage)) {
@@ -245,6 +252,9 @@ export async function mediaDelete(env: Env, userId: string, id: string, siteId: 
   }
   await env.DB.prepare("DELETE FROM media_files WHERE id=? AND site_id=?").bind(id, siteId).run();
   await activity(env, userId, "delete", "media", id, { key, siteId });
+  try {
+    await doAction("media:afterDelete", { env, siteId }, { id, siteId });
+  } catch {}
   return ok({ ok: true, id, key, site: siteId });
 }
 

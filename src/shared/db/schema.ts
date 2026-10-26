@@ -658,6 +658,80 @@ export const widgetInstances = sqliteTable("widget_instances", {
   locale: text("locale").notNull().default(""),
 });
 
+export const sysNotifyChannels = sqliteTable(
+  "sys_notify_channels",
+  {
+    site_id: text("site_id").notNull(),
+    channel: text("channel").notNull(),
+    enabled: integer("enabled").notNull().default(0),
+    config: text("config").notNull().default("{}"),
+    created_at: integer("created_at").notNull(),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.site_id, t.channel] }),
+  })
+);
+
+export const sysNotifyRules = sqliteTable("sys_notify_rules", {
+  id: text("id").primaryKey(),
+  site_id: text("site_id").notNull(),
+  name: text("name").notNull(),
+  event: text("event").notNull(),
+  priority: integer("priority").notNull().default(10),
+  enabled: integer("enabled").notNull().default(1),
+  remark: text("remark"),
+  created_at: integer("created_at").notNull(),
+  updated_at: integer("updated_at").notNull(),
+});
+
+export const sysNotifyActions = sqliteTable("sys_notify_actions", {
+  id: text("id").primaryKey(),
+  site_id: text("site_id").notNull(),
+  rule_id: text("rule_id").notNull(),
+  channel: text("channel").notNull(),
+  recipient_type: text("recipient_type").notNull().default("admin"),
+  recipient_target: text("recipient_target"),
+  template_title: text("template_title"),
+  template_body: text("template_body"),
+  enabled: integer("enabled").notNull().default(1),
+  created_at: integer("created_at").notNull(),
+});
+
+export const sysNotifyQueue = sqliteTable("sys_notify_queue", {
+  id: text("id").primaryKey(),
+  site_id: text("site_id").notNull(),
+  rule_id: text("rule_id"),
+  action_id: text("action_id"),
+  event: text("event").notNull(),
+  channel: text("channel").notNull(),
+  recipient: text("recipient"),
+  title: text("title"),
+  content: text("content"),
+  payload: text("payload").notNull().default("{}"),
+  status: text("status").notNull().default("queued"),
+  attempts: integer("attempts").notNull().default(0),
+  max_attempts: integer("max_attempts").notNull().default(5),
+  next_attempt_at: integer("next_attempt_at").notNull().default(0),
+  error: text("error"),
+  created_at: integer("created_at").notNull(),
+  sent_at: integer("sent_at"),
+});
+
+export const sysInappNotifications = sqliteTable("sys_inapp_notifications", {
+  id: text("id").primaryKey(),
+  site_id: text("site_id").notNull(),
+  user_id: text("user_id"),
+  role: text("role"),
+  event: text("event"),
+  title: text("title").notNull(),
+  content: text("content").notNull(),
+  url: text("url"),
+  status: text("status").notNull().default("unread"),
+  created_at: integer("created_at").notNull(),
+  read_at: integer("read_at"),
+});
+
 /**
  * Canonical map of SQL table name -> Drizzle table definition for all 52
  * platform tables in `PLATFORM_SCHEMA`.
@@ -707,6 +781,11 @@ export const PLATFORM_DRIZZLE_TABLES = {
   taxonomies,
   term_relationships: termRelationships,
   terms,
+  sys_notify_channels: sysNotifyChannels,
+  sys_notify_rules: sysNotifyRules,
+  sys_notify_actions: sysNotifyActions,
+  sys_notify_queue: sysNotifyQueue,
+  sys_inapp_notifications: sysInappNotifications,
   theme_blocks: themeBlocks,
   theme_files: themeFiles,
   theme_installs: themeInstalls,

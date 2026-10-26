@@ -141,6 +141,11 @@ export const PLATFORM_SCHEMA = [
   { table: "custom_widget_types", tenant: "site", locale: null, onSiteDelete: "purge", note: "user-defined custom widget templates and schemas; per site" },
   { table: "notification_log", tenant: "site", locale: null, onSiteDelete: "retain", note: "host-written send ledger: also the dedup store for ChannelMessage.dedupKey" },
   { table: "api_keys", tenant: "platform", locale: null, note: "machine-to-machine API keys for external AI agents and workflows; install-wide token registry" },
+  { table: "sys_notify_channels", tenant: "site", locale: null, onSiteDelete: "purge", note: "notification channel configuration (mail, inapp, webhooks) per site" },
+  { table: "sys_notify_rules", tenant: "site", locale: null, onSiteDelete: "purge", note: "notification rules mapping events to actions per site" },
+  { table: "sys_notify_actions", tenant: "site", locale: null, onSiteDelete: "purge", note: "actions linked to notification rules per site" },
+  { table: "sys_notify_queue", tenant: "site", locale: null, onSiteDelete: "purge", note: "asynchronous notification delivery queue and retry ledger per site" },
+  { table: "sys_inapp_notifications", tenant: "site", locale: null, onSiteDelete: "purge", note: "in-app notification center messages per site" },
 ] as const;
 
 /**

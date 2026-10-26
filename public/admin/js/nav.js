@@ -128,6 +128,18 @@ export function baseGroups() {
           active: core("settings") || core("seo") || core("urls") || core("features"),
         },
         {
+          key: "notify",
+          title: t("core.nav.notifications", "Notifications"),
+          icon: "bell",
+          active: core("notify"),
+        },
+        {
+          key: "hook-inspector",
+          title: t("core.nav.hookInspector", "Hook Inspector"),
+          icon: "sparkles",
+          active: core("hook-inspector"),
+        },
+        {
           key: "tools",
           title: t("core.nav.toolsHub", "Tools Hub"),
           icon: "sliders-horizontal",
@@ -349,6 +361,8 @@ export function header() {
           <div class="menu-label" style="white-space:normal;line-height:1.5">
             ${esc(t("core.msg.notifHint", "Autosave is on for drafts you open in the editor. Revisions are kept per locale."))}
           </div>
+          <div class="menu-sep"></div>
+          <button class="menu-item" data-nav="notify">${icon("bell")}<span>${esc(t("core.action.viewAllNotifications", "View All Notifications"))}</span></button>
         </div>
       </div>
       <div class="dropdown">

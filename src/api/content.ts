@@ -547,6 +547,10 @@ export async function savePost(
   // Notify plugins after the write has landed so they can index/notify.
   try {
     await doAction("afterSavePost", { env, siteId }, { id: entityId, type: kind, slug: effectiveSlug, locale, title, status, siteId, created: isCreate });
+    const hookName = isCreate
+      ? (kind === "page" ? "page:afterCreate" : "post:afterCreate")
+      : (kind === "page" ? "page:afterUpdate" : "post:afterUpdate");
+    await doAction(hookName, { env, siteId }, { id: entityId, type: kind, slug: effectiveSlug, locale, title, status, siteId, author: userId });
   } catch {
     /* never surface a plugin failure to the editor */
   }
@@ -636,6 +640,10 @@ export async function deletePost(env: Env, userId: string, id: string, siteId: s
     await env.DB.prepare("DELETE FROM scheduled_posts WHERE post_id = ?").bind(pid).run().catch(() => {});
     await env.DB.prepare("DELETE FROM posts WHERE id = ? AND site_id = ?").bind(pid, siteId).run();
     await activity(env, userId, "delete", post.type || "post", pid, { siteId });
+    try {
+      const delHook = (post.type === "page" ? "page:afterDelete" : "post:afterDelete");
+      await doAction(delHook, { env, siteId }, { id: pid, siteId, type: post.type || "post" });
+    } catch {}
   }
 
   // Re-aggregate count for active terms in this site

@@ -36,6 +36,8 @@ import formsManager from "./forms-manager.js";
 import comments from "./comments.js";
 import members from "./members.js";
 import { tools } from "./tools.js";
+import notify from "./notify.js";
+import hookInspector from "./hook-inspector.js";
 
 export const SCREENS = {
   dashboard,
@@ -65,6 +67,8 @@ export const SCREENS = {
   "api-keys": apiKeys,
   "forms-manager": formsManager,
   forms: formsManager,
+  notify,
+  "hook-inspector": hookInspector,
 
   // Targets of the dynamic `cpt:` / `menu:` / `table:` prefixes, resolved by
   // the shell. `table-list` and `table-edit` are also registered directly so

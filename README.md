@@ -7,7 +7,7 @@
 [![License: AGPL-3.0 + Commercial](https://img.shields.io/badge/license-AGPL--3.0%20%2B%20Commercial-blue.svg)](LICENSE)
 [![Platform: Cloudflare Workers](https://img.shields.io/badge/platform-Cloudflare%20Workers-f38020.svg)](https://workers.cloudflare.com/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6.svg)](tsconfig.json)
-[![Tests](https://img.shields.io/badge/tests-37%20suites-brightgreen.svg)](package.json)
+[![Tests](https://img.shields.io/badge/tests-36%20suites-brightgreen.svg)](package.json)
 
 **Live demo → [demo.cfpress.cc](https://demo.cfpress.cc)**
 **admin → [demo.cfpress.cc/admin](https://demo.cfpress.cc/admin)** — demo sign-in: `admin` / `change-me-now`
@@ -237,11 +237,11 @@ shared  <-  platform  <-  rendering  <-  extensions  <-  index.ts
 ```
 content/          what gets loaded into a running install
   themes/           shipped themes (default, prism, fixture)
-  plugins/          shipped plugins (notify)
+  plugins/          shipped plugins (adinsert)
   migrations/       ordered D1 migration stream
 public/admin/     the no-build admin SPA, served as static assets
 scripts/          scaffolder, deploy helpers, the launcher pair
-tests/            37 suites — see below
+tests/            36 suites — see below
 ```
 
 ### Tests

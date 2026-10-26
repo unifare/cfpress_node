@@ -43,8 +43,19 @@ export const NOTIFICATION_CHANNELS: ChannelMeta[] = [
     type: "smtp",
     desc: "系统基础邮件服务，供通知、验证码、安全告警等全场景复用",
     fields: [
-      { key: "smtp_host", label: "SMTP 主机", type: "text", placeholder: "smtp.example.com" },
-      { key: "smtp_port", label: "端口", type: "number", placeholder: "465" },
+      {
+        key: "provider",
+        label: "邮件发送方式",
+        type: "select",
+        options: [
+          ["resend", "Resend API (推荐，HTTPS 协议，免配置 SMTP 端口)"],
+          ["smtp", "自建 / 标准 SMTP 服务器"],
+        ],
+      },
+      { key: "resend_api_key", label: "Resend API Key", type: "password", placeholder: "re_xxxxxxxxxxxxxxxx" },
+      { key: "smtp_from", label: "发件人地址", type: "text", placeholder: "CFPress <onboarding@resend.dev> 或 CFPress <noreply@example.com>" },
+      { key: "smtp_host", label: "SMTP 主机 (使用SMTP时必填)", type: "text", placeholder: "smtp.example.com" },
+      { key: "smtp_port", label: "SMTP 端口", type: "number", placeholder: "465" },
       {
         key: "smtp_secure",
         label: "SSL 加密",
@@ -54,9 +65,8 @@ export const NOTIFICATION_CHANNELS: ChannelMeta[] = [
           ["0", "STARTTLS (587)"],
         ],
       },
-      { key: "smtp_user", label: "账号", type: "text", placeholder: "noreply@example.com" },
-      { key: "smtp_pass", label: "密码 / 授权码", type: "password" },
-      { key: "smtp_from", label: "发件人显示", type: "text", placeholder: "CFPress 系统通知 <noreply@example.com>" },
+      { key: "smtp_user", label: "SMTP 账号", type: "text", placeholder: "noreply@example.com" },
+      { key: "smtp_pass", label: "SMTP 密码 / 授权码", type: "password" },
     ],
   },
   {
@@ -156,7 +166,11 @@ export async function dispatchToChannel(
       }
 
       case "mail": {
-        const to = msg.recipient || config.smtp_user || config.smtp_from;
+        let to = msg.recipient || config.recipient || config.smtp_user;
+        if (!to && config.smtp_from) {
+          const match = String(config.smtp_from).match(/<([^>]+)>/);
+          to = match ? match[1] : (config.smtp_from.includes("@") ? config.smtp_from.trim() : "");
+        }
         if (!to) throw new Error("未指定接收邮箱地址");
         await EmailService.send(env, msg.siteId, {
           to,

@@ -176,9 +176,22 @@ function writeUiLang(value) {
   try { db.prepare("UPDATE site_users SET ui_lang=? WHERE username='admin'").run(value); } catch { /* ok */ } finally { db.close(); }
 }
 
-/** The reference plugin, zipped from the repo copy — same idea as the theme. */
+/** The fixture plugin, zipped in-memory for testing admin menus and settings. */
 function pluginZipBase64() {
-  const manifest = JSON.parse(readFileSync(join(ROOT, "content", "plugins", "notify", "plugin.json"), "utf8"));
+  const manifest = {
+    name: "notify",
+    title: "Notification Dispatcher",
+    version: "1.0.0",
+    permissions: ["content.read", "settings.read", "settings.write"],
+    channels: [{ type: "webhook", name: "Outgoing Webhook" }],
+    adminMenus: [
+      { id: "notify-settings", label: "Notify Settings", icon: "bell", screen: "plugin-settings", capability: "settings.read" },
+    ],
+    settings: [
+      { key: "webhook_url", label: "Webhook URL", type: "text", default: "https://example.com/hook" },
+      { key: "secret_token", label: "Secret Token", type: "password", default: "" },
+    ],
+  };
   const zip = zipSync({ "plugin.json": strToU8(JSON.stringify(manifest, null, 2)) });
   return Buffer.from(zip).toString("base64");
 }

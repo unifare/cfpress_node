@@ -464,7 +464,7 @@ async function main() {
   });
   check("MS-3.1: editor@A creating a widget on site B is 403", eWidgetB.status, 403);
   // MS-3.2: enabling/disabling a plugin flips every site at once — install-wide.
-  const eToggle = await req(worker, env, "/api/v1/extensions/plugins/notify/disable", { method: "POST", headers: aCookie });
+  const eToggle = await req(worker, env, "/api/v1/extensions/plugins/adinsert/disable", { method: "POST", headers: aCookie });
   check("MS-3.2: editor toggling a plugin is 403", eToggle.status, 403);
   const eActivity = await req(worker, env, "/api/v1/activity", { headers: aCookie });
   check("MS-3.2: editor reading the install-wide audit log is 403", eActivity.status, 403);

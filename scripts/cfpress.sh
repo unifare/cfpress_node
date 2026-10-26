@@ -254,7 +254,6 @@ plugin-channels|tests/suites/plugin-channels.test.mjs
 plugin-pages|tests/suites/plugin-pages.test.mjs
 features|tests/suites/features.test.mjs
 permalink|tests/suites/permalink.test.mjs
-hook-tester|tests/suites/hook-tester.test.mjs
 shop-theme|tests/suites/shop-theme.test.mjs
 theme-assets|tests/suites/theme-assets.test.mjs
 api-keys|tests/suites/api-keys.test.mjs

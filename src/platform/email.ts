@@ -19,6 +19,8 @@ import { doAction, applyFilters } from "./hooks";
 import { getSetting } from "./settings";
 
 export interface EmailConfig {
+  provider?: "smtp" | "resend";
+  resendApiKey?: string;
   host: string;
   port: number;
   secure: boolean;
@@ -36,10 +38,10 @@ export interface SendMailOptions {
 
 export class EmailService {
   /**
-   * Resolve SMTP config for the given siteId.
+   * Resolve Email config (Resend API or SMTP) for the given siteId.
    * Priority:
    * 1) `sys_notify_channels` where channel='mail' and enabled=1
-   * 2) Settings fallback `notify_smtp_*`
+   * 2) Settings fallback `notify_smtp_*` / `notify_resend_*`
    */
   static async getConfig(env: Env, siteId: string): Promise<EmailConfig | null> {
     const cfg: Partial<EmailConfig> = {};
@@ -54,22 +56,30 @@ export class EmailService {
 
       if (row && row.enabled && row.config) {
         const parsed = JSON.parse(row.config);
-        if (parsed.smtp_host) {
-          cfg.host = parsed.smtp_host;
-          cfg.port = parseInt(parsed.smtp_port, 10) || 465;
-          cfg.secure = String(parsed.smtp_secure) !== "0";
-          cfg.user = parsed.smtp_user || "";
-          cfg.pass = parsed.smtp_pass || "";
-          cfg.from = parsed.smtp_from || "";
-        }
+        cfg.provider = (parsed.provider === "smtp" ? "smtp" : (parsed.resend_api_key || parsed.provider === "resend" ? "resend" : "smtp"));
+        if (parsed.resend_api_key) cfg.resendApiKey = parsed.resend_api_key;
+        if (parsed.smtp_host) cfg.host = parsed.smtp_host;
+        cfg.port = parseInt(parsed.smtp_port, 10) || 465;
+        cfg.secure = String(parsed.smtp_secure) !== "0";
+        cfg.user = parsed.smtp_user || "";
+        cfg.pass = parsed.smtp_pass || "";
+        cfg.from = parsed.smtp_from || "";
       }
     } catch {
       // Table may not exist prior to migration
     }
 
     // 2) Fallback to settings
-    if (!cfg.host) {
+    if (!cfg.host && !cfg.resendApiKey) {
       try {
+        const provider = await getSetting(env, "notify_email_provider", siteId);
+        const resendKey = await getSetting(env, "notify_resend_api_key", siteId);
+        if (provider === "resend" || resendKey) {
+          cfg.provider = "resend";
+          cfg.resendApiKey = resendKey || "";
+          cfg.from = (await getSetting(env, "notify_resend_from", siteId)) || "";
+        }
+
         const host = await getSetting(env, "notify_smtp_host", siteId);
         if (host) {
           cfg.host = host;
@@ -77,27 +87,32 @@ export class EmailService {
           cfg.secure = (await getSetting(env, "notify_smtp_secure", siteId)) !== "0";
           cfg.user = (await getSetting(env, "notify_smtp_user", siteId)) || "";
           cfg.pass = (await getSetting(env, "notify_smtp_pass", siteId)) || "";
-          cfg.from = (await getSetting(env, "notify_smtp_from", siteId)) || "";
+          if (!cfg.from) cfg.from = (await getSetting(env, "notify_smtp_from", siteId)) || "";
         }
       } catch {
         // Ignore settings lookup failures
       }
     }
 
-    if (!cfg.host) return null;
+    if (!cfg.host && !cfg.resendApiKey) return null;
+
+    const defaultFrom = cfg.provider === "resend" ? "CFPress <onboarding@resend.dev>" : `CFPress <noreply@${cfg.host || "localhost"}>`;
 
     return {
-      host: cfg.host,
+      provider: cfg.provider || (cfg.resendApiKey ? "resend" : "smtp"),
+      resendApiKey: cfg.resendApiKey || "",
+      host: cfg.host || "",
       port: cfg.port || 465,
       secure: cfg.secure ?? true,
       user: cfg.user || "",
       pass: cfg.pass || "",
-      from: cfg.from || `CFPress <noreply@${cfg.host}>`,
+      from: cfg.from || defaultFrom,
     };
   }
 
   /**
    * Send an email with hook lifecycle and error handling.
+   * Supports Resend API and standard SMTP.
    */
   static async send(env: Env, siteId: string, options: SendMailOptions): Promise<{ success: boolean; messageId?: string; error?: string }> {
     if (!options.to) {
@@ -116,46 +131,79 @@ export class EmailService {
 
     const cfg = await this.getConfig(env, siteId);
     if (!cfg) {
-      throw new Error("未配置 SMTP 邮箱（请在系统通知或渠道配置中配置邮箱服务）");
+      throw new Error("未配置邮件服务（请在系统通知的渠道配置中配置 Resend 或 SMTP）");
     }
 
-    const from = cfg.from || `CFPress <noreply@${cfg.host}>`;
+    const from = cfg.from || (cfg.provider === "resend" ? "CFPress <onboarding@resend.dev>" : `CFPress <noreply@${cfg.host || "localhost"}>`);
     const finalSubject = mail.subject || "系统通知";
     const finalHtml = mail.html || (mail.text || "").replace(/\n/g, "<br>");
     const finalText = mail.text || (mail.html || "").replace(/<[^>]+>/g, "");
 
     let messageId = "";
 
-    // Transport handling: Try nodemailer if available, or fetch-based SMTP relay
-    try {
-      let nodemailer: any = null;
-      try {
-        nodemailer = (globalThis as any).nodemailer || (typeof require !== "undefined" ? require("nodemailer") : null);
-      } catch {}
-      if (nodemailer && nodemailer.createTransport) {
-        const transporter = (nodemailer as any).createTransport({
-          host: cfg.host,
-          port: cfg.port,
-          secure: cfg.secure,
-          auth: cfg.user ? { user: cfg.user, pass: cfg.pass } : undefined,
-        });
-
-        const info = await transporter.sendMail({
-          from,
-          to: mail.to,
-          subject: finalSubject,
-          text: finalText,
-          html: finalHtml,
-        });
-        messageId = info.messageId || `smtp_${Date.now()}`;
-      } else {
-        // Fallback simulated delivery or logging in environments without nodemailer
-        console.log(`[EmailService] Simulated send to ${mail.to} (Nodemailer not loaded): ${finalSubject}`);
-        messageId = `edge_${Date.now()}`;
+    if (cfg.provider === "resend" || (!cfg.host && cfg.resendApiKey)) {
+      // ----------------------------------------------------------------------
+      // Resend API Transport (native fetch, works in Workers and Node)
+      // ----------------------------------------------------------------------
+      const apiKey = cfg.resendApiKey;
+      if (!apiKey) {
+        throw new Error("已选择 Resend 模式，但未配置 Resend API Key");
       }
-    } catch (err: any) {
-      console.error("[EmailService] Send error:", err);
-      throw new Error(`邮件发送失败: ${err?.message || err}`);
+
+      const res = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from,
+          to: Array.isArray(mail.to) ? mail.to : [mail.to],
+          subject: finalSubject,
+          html: finalHtml,
+          text: finalText,
+        }),
+      });
+
+      const data = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok) {
+        throw new Error(`Resend API 错误 (${res.status}): ${data.message || JSON.stringify(data)}`);
+      }
+      messageId = data.id || `resend_${Date.now()}`;
+    } else {
+      // ----------------------------------------------------------------------
+      // Standard SMTP Transport (Nodemailer / fallback)
+      // ----------------------------------------------------------------------
+      try {
+        let nodemailer: any = null;
+        try {
+          nodemailer = (globalThis as any).nodemailer || (typeof require !== "undefined" ? require("nodemailer") : null);
+        } catch {}
+        if (nodemailer && nodemailer.createTransport) {
+          const transporter = nodemailer.createTransport({
+            host: cfg.host,
+            port: cfg.port,
+            secure: cfg.secure,
+            auth: cfg.user ? { user: cfg.user, pass: cfg.pass } : undefined,
+          });
+
+          const info = await transporter.sendMail({
+            from,
+            to: mail.to,
+            subject: finalSubject,
+            text: finalText,
+            html: finalHtml,
+          });
+          messageId = info.messageId || `smtp_${Date.now()}`;
+        } else {
+          // Fallback simulated delivery or logging in environments without nodemailer
+          console.log(`[EmailService] Simulated SMTP send to ${mail.to} (Nodemailer not loaded): ${finalSubject}`);
+          messageId = `edge_${Date.now()}`;
+        }
+      } catch (err: any) {
+        console.error("[EmailService] SMTP Send error:", err);
+        throw new Error(`邮件发送失败: ${err?.message || err}`);
+      }
     }
 
     // Hook: email:afterSend for auditing/logging
@@ -165,6 +213,7 @@ export class EmailService {
         from,
         subject: finalSubject,
         messageId,
+        provider: cfg.provider,
       });
     } catch {
       // afterSend hook failure must not cancel success
